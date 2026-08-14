@@ -1,0 +1,28 @@
+[project]
+name = "rankpilot-api"
+version = "0.1.0"
+description = "RankPilot AI backend — FastAPI, async."
+requires-python = ">=3.11"
+# Dependencies are managed in requirements.txt; keep this empty so
+# `pip install -e .` only registers the package (no dependency re-resolution).
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Make the `app` package importable from anywhere (via `pip install -e .`),
+# so uvicorn/arq/alembic resolve it regardless of the working directory or
+# reload subprocesses (fixes "No module named 'app'" on Windows).
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

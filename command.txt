@@ -1,0 +1,21 @@
+The competitor analysis is not working consistently. Earlier, it was showing different and more detailed results, but now it is returning incomplete and sometimes contradictory data.
+
+Please fix the competitor analysis so that it works properly and reliably. It should:
+
+Crawl all accessible pages of both websites, not just one page.
+Properly detect and process XML sitemaps, robots.txt, canonical URLs, internal links, and discovered URLs.
+Make sure no important pages or content are missed during the crawl.
+Collect and organize all available competitor data consistently.
+Compare both websites using the same criteria and methodology.
+Accurately identify keyword gaps, shared keywords/topics, content gaps, top-performing pages, content strategy, internal linking, indexed/discovered pages, and other relevant SEO metrics.
+Avoid making claims based on incomplete crawl data. If a competitor's website cannot be crawled properly, clearly show the exact reason instead of generating assumptions.
+Keep the results consistent between analyses unless the underlying website data has actually changed.
+Clearly distinguish between AI-estimated data and data obtained from an actual SEO data provider.
+Do not label something as an accurate traffic or authority figure if it is only an estimate.
+
+Also, I want to know how we can get actual traffic, authority, backlinks, ranking, and keyword data instead of AI-estimated figures.
+
+For example, can we integrate an actual SEO data provider such as Ahrefs or Semrush into the competitor analysis? If yes, please explain exactly how we can connect their APIs or other available integrations, what credentials/API keys are required, what data we can retrieve, and how that data should be incorporated into our competitor analysis.
+
+The goal is to make this competitor analysis comprehensive and reliable so that both websites are crawled properly, no pages or important details are missed, and every available metric is managed and displayed correctly.
+For the Ahrefs/Semrush integration, the key point is that your current system is explicitly using AI estimates. If you want exact/first-party provider data, you need to connect their APIs (or an available official integration) and map their returned metrics into your analysis pipeline.

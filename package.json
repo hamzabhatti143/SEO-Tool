@@ -1,0 +1,21 @@
+{
+  "name": "rankpilot-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RankPilot AI — an AI-powered SEO SaaS platform.",
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace apps/web",
+    "build:web": "npm run build --workspace apps/web",
+    "lint:web": "npm run lint --workspace apps/web",
+    "dev:api": "cd apps/api && python run.py",
+    "worker": "cd apps/api && arq app.worker.WorkerSettings",
+    "install:api": "cd apps/api && pip install -r requirements.txt"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}

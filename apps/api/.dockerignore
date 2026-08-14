@@ -1,0 +1,17 @@
+# Never bake local secrets or dev cruft into the image — HF Space Secrets
+# supply env vars at runtime.
+.env
+.env.*
+!.env.example
+
+.venv/
+venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.git/
+.gitignore
+*.md
+!README.md
+tests/

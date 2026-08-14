@@ -1,0 +1,55 @@
+# --- Web framework ---
+fastapi==0.111.0
+uvicorn[standard]>=0.30  # newer required transitively by openai-agents/mcp
+
+# --- Data validation / settings ---
+pydantic[email]>=2.9,<3
+pydantic-settings>=2.4,<3
+
+# --- Async database (SQLAlchemy 2.x + async Postgres driver) ---
+sqlalchemy[asyncio]==2.0.31
+psycopg[binary,pool]>=3.1.18
+alembic==1.13.2
+
+# --- Auth / security ---
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# passlib 1.7.4 is incompatible with bcrypt >= 4.1 (its backend self-test
+# crashes with "password cannot be longer than 72 bytes"). Pin to 4.0.x.
+bcrypt==4.0.1
+python-multipart==0.0.9
+
+# --- Website Audit crawler / On-Page analysis ---
+httpx>=0.28,<1  # openai-agents 0.19.x requires httpx>=0.28
+beautifulsoup4==4.12.3
+textstat>=0.7.3
+
+# --- AI logic ---
+# Keep openai and openai-agents on a compatible pair: old openai-agents
+# crashes on newer openai (InputTokensDetails.cache_write_tokens). 0.19.x is
+# built for openai 2.x.
+openai>=2.45,<3
+openai-agents>=0.19,<0.20
+langchain-core>=0.2.28
+langchain-openai>=0.1.20
+
+# --- Keyword clustering & trends ---
+numpy>=1.26.0
+pytrends==4.9.2
+
+# --- Background queue + scheduled cron (ARQ over Redis) ---
+arq==0.26.0
+
+# --- Reports: HTML templating + HTML-to-PDF ---
+jinja2>=3.1.4
+# xhtml2pdf is pure-Python (no native libs) — the default PDF renderer, works
+# on Windows out of the box.
+xhtml2pdf>=0.2.17
+# WeasyPrint is higher fidelity but needs native libs (GTK/Pango on Windows);
+# optional — used automatically only if it's importable.
+# weasyprint>=62.0
+
+# --- Dev / test ---
+pytest==8.2.2
+pytest-asyncio==0.23.7
+ruff==0.5.2
