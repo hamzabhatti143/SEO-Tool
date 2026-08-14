@@ -49,3 +49,7 @@ coverage/
 
 # Deploy working dir (cloned HF Space with its own git repo)
 hf_space/
+
+# Local scratch notes (not part of the codebase)
+command.txt
+error.txt
