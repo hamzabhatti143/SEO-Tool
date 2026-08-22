@@ -10,7 +10,10 @@ from app.api.v1.routes import (
     automation,
     backlinks,
     competitors,
+    connectors,
     content,
+    core_web_vitals,
+    fixes,
     gap_analysis,
     health,
     internal_links,
@@ -27,7 +30,14 @@ api_router.include_router(health.router, tags=["meta"])
 api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
+api_router.include_router(fixes.router, prefix="/projects", tags=["cwv-fixes"])
 api_router.include_router(audits.router, prefix="/audits", tags=["audit"])
+api_router.include_router(
+    core_web_vitals.router, prefix="/audit", tags=["audit"]
+)
+api_router.include_router(
+    connectors.router, prefix="/connectors", tags=["connectors"]
+)
 api_router.include_router(
     keywords.router, prefix="/keywords", tags=["keywords"]
 )

@@ -11,7 +11,10 @@ from app.models.agency import (
 )
 from app.models.audit import AuditReport
 from app.models.automation import AutomationSettings
+from app.models.change_log import ChangeLog
 from app.models.content import Content
+from app.models.core_web_vitals import CoreWebVitals
+from app.models.credentials import Credentials
 from app.models.keyword import Keyword
 from app.models.page import ProjectPage
 from app.models.project import Project
@@ -23,6 +26,9 @@ __all__ = [
     "User",
     "Project",
     "AuditReport",
+    "ChangeLog",
+    "CoreWebVitals",
+    "Credentials",
     "Keyword",
     "Content",
     "Subscription",

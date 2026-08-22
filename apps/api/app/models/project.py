@@ -15,7 +15,10 @@ if TYPE_CHECKING:
     from app.models.agency import ClientShareLink, ProjectInvite, ProjectMember
     from app.models.audit import AuditReport
     from app.models.automation import AutomationSettings
+    from app.models.change_log import ChangeLog
     from app.models.content import Content
+    from app.models.core_web_vitals import CoreWebVitals
+    from app.models.credentials import Credentials
     from app.models.keyword import Keyword
     from app.models.page import ProjectPage
     from app.models.rank_tracking import TrackedKeyword
@@ -34,6 +37,12 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     domain: Mapped[str] = mapped_column(String(253), nullable=False)
 
+    # Which CMS/commerce platform this project is connected to, if any.
+    # One of: wordpress | shopify | custom (default).
+    platform: Mapped[str] = mapped_column(
+        String(20), default="custom", server_default="custom", nullable=False
+    )
+
     # White-label branding (applied in the dashboard + reports for Agency).
     brand_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     brand_logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -42,6 +51,17 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     owner: Mapped[User] = relationship(back_populates="projects")
     audit_reports: Mapped[list[AuditReport]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    core_web_vitals: Mapped[list[CoreWebVitals]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    credentials: Mapped[Credentials | None] = relationship(
+        back_populates="project",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    change_logs: Mapped[list[ChangeLog]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
     keywords: Mapped[list[Keyword]] = relationship(

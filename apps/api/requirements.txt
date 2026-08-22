@@ -24,6 +24,11 @@ httpx>=0.28,<1  # openai-agents 0.19.x requires httpx>=0.28
 beautifulsoup4==4.12.3
 textstat>=0.7.3
 
+# --- Core Web Vitals ---
+# Backed by the Google PageSpeed Insights API v5 (see core_web_vitals_service).
+# It's a plain HTTPS call via httpx (already required above) — no browser, no
+# Node, no Playwright. Set PAGESPEED_API_KEY in the environment.
+
 # --- AI logic ---
 # Keep openai and openai-agents on a compatible pair: old openai-agents
 # crashes on newer openai (InputTokensDetails.cache_write_tokens). 0.19.x is

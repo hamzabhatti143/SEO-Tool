@@ -21,6 +21,9 @@ versioned, and reasoned about in one place.
 | Module              | Endpoint                              | AI  | Stored |
 | ------------------- | ------------------------------------- | --- | ------ |
 | Website Audit       | `POST /api/v1/audits`                 | No  | Yes    |
+| Core Web Vitals     | `POST /api/v1/audit/core-web-vitals`  | No  | Yes    |
+| Platform Connectors | `POST …/connectors/wordpress/connect` · `…/shopify/install` · `…/shopify/callback` | No | Yes |
+| CWV Fix Orchestration | `POST …/projects/{id}/cwv/fix-all` · `…/cwv/revert/{change_id}` | No | Yes |
 | On-Page Optimizer   | `POST /api/v1/optimizer/analyze`      | Yes | No     |
 | Keyword Research    | `POST /api/v1/keywords/research`      | Yes | Yes    |
 | Competitor Intel    | `POST /api/v1/competitors/analyze`    | Yes | No     |
@@ -56,6 +59,76 @@ best-effort: pytrends is rate-limited, so it runs off the event loop in a
 threadpool, batched 5 terms at a time and capped by
 `KEYWORD_TREND_MAX_TERMS` — throttled terms simply come back without a
 trend rather than failing the request.
+
+Core Web Vitals extends the Website Audit module with a **performance
+detection engine** backed by the **Google PageSpeed Insights (PSI) API v5** —
+no local browser. `POST /audit/core-web-vitals` calls `…/runPagespeed` for the
+URL requesting **all four categories** (`performance`, `accessibility`,
+`best-practices`, `seo`), `strategy` `mobile` (default) or `desktop`, and
+extracts:
+
+- **Lab timing metrics** — **FCP, LCP, TBT, CLS, Speed Index** — from
+  `lighthouseResult.audits` (`numericValue`). INP is **not** read from lab
+  audits (it doesn't exist in simulated runs).
+- **Field INP** — only from `loadingExperience.metrics.INTERACTION_TO_NEXT_PAINT`
+  (real Chrome users). Shown as **"No field data available"** when absent —
+  never a fake 0.
+- **Four category scores** (each `score` ×100).
+- **Insights / Diagnostics / Passed** — each category's `auditRefs` classified:
+  opportunities-with-savings → Insights (with "Est savings"), other
+  failing/informational → Diagnostics, `score == 1` → Passed.
+- **Screenshots** — the load-timeline thumbnails and the final screenshot.
+
+For accuracy the call runs **`PAGESPEED_RUNS` times (default 2)** and stores the
+**median** of each metric plus every individual run for transparency. The scan
+is **synchronous** (≈30–60s) and persists a `core_web_vitals` row (the median
+metrics + four scores as columns, and the full report — insights, diagnostics,
+passed, screenshots, metadata, runs — in `report_json`). The UI mirrors
+pagespeed.web.dev: four color-coded score circles, a large Performance circle +
+screenshot, a metrics grid, timeline thumbnails, and expandable
+Insights/Diagnostics/Passed sections per category. Rate limits (free tier:
+25k/day, 240/min) surface as HTTP 429 and are retried with backoff. Set
+**`PAGESPEED_API_KEY`** in the environment (never hardcoded).
+
+Platform Connectors link a project to **WordPress** or **Shopify** so
+RankPilot can read/push SEO changes. A project carries a **`platform`** field
+(`wordpress` | `shopify` | `custom`) and at most one **`credentials`** row,
+whose secret is **encrypted at rest** with Fernet (`app.core.crypto`) and
+never returned by the API. The unified **"Connect Your Site"** page offers a
+WordPress/Shopify card, each leading to its flow:
+
+- **WordPress**: the user installs the RankPilot plugin (in
+  `wordpress-plugin/rankpilot-connector/` — see its README), which generates an
+  API key shown under **Settings → RankPilot**. They paste the site URL + key,
+  and `POST /connectors/wordpress/connect` verifies it by calling the plugin's
+  health-check (`GET {site}/wp-json/rankpilot/v1/health` with the key as a
+  Bearer token) — credentials are stored **only if the check passes**.
+- **Shopify**: a standard **Admin API OAuth** install (scopes `read_themes`,
+  `write_themes`, `read_products`, `write_products`). `POST
+  /connectors/shopify/install` returns the authorize URL (state is a signed,
+  short-lived JWT carrying the project id); Shopify redirects the browser to
+  the public `GET /connectors/shopify/callback`, which **verifies the HMAC**
+  and signed state, exchanges the code for an access token, stores the token +
+  shop domain, and bounces back to the Connect page.
+
+Shopify needs `SHOPIFY_API_KEY`/`SHOPIFY_API_SECRET` (Partner dashboard) and a
+publicly reachable `APP_BASE_URL` for the OAuth `redirect_uri`; set
+`CREDENTIALS_ENCRYPTION_KEY` in production (it's derived from `SECRET_KEY`
+otherwise).
+
+CWV Fix Orchestration applies (and reverts) automated Core Web Vitals fixes
+across platforms. `POST /projects/{id}/cwv/fix-all` reads the project's
+**`platform`** field and routes to the matching handler — **WordPress** or
+**Shopify** — then triggers a **re-scan** (the shared `scan_and_store` write
+path, so a new `core_web_vitals` row is stored) and records a **`change_log`**
+row: the platform's revert handle (`external_change_id` = a WordPress change id
+or a Shopify backup theme id), before/after snapshots, and the CWV score on
+either side. `POST /projects/{id}/cwv/revert/{change_id}` routes the same way to
+the revert handler and re-scans. The platform handlers are **stubbed** (mock
+responses with clear TODOs) until the WordPress plugin and Shopify app expose
+their fix endpoints — the orchestration flow (routing, logging, re-scan) is
+complete and tested around them. The re-scan is **best-effort**: if it can't
+run, the fix is still logged (`rescan_status: "failed"`) rather than lost.
 
 The On-Page Optimizer is a **stateless** analysis endpoint (URL + target
 keyword, authenticated but not persisted): it checks meta title/description,
@@ -187,9 +260,19 @@ PostgreSQL via async SQLAlchemy 2.x. Tables (see `apps/api/app/models`):
 - **subscriptions** — id, user_id → users (1:1), tier (free/pro/agency),
   status (active/trialing/past_due/canceled), current_period_end,
   stripe_customer_id, stripe_subscription_id, timestamps
-- **projects** — id, owner_id → users, name, domain, timestamps
+- **projects** — id, owner_id → users, name, domain, platform
+  (wordpress/shopify/custom), timestamps
+- **credentials** (Credentials) — id, project_id → projects (unique), platform,
+  encrypted_api_key_or_token, site_url, connected_at, status, timestamps
+- **change_log** (ChangeLog) — id, project_id → projects, platform, issue_type,
+  external_change_id, before_snapshot/after_snapshot (JSONB),
+  cwv_score_before/after, applied_at, status (applied/reverted), timestamps
 - **audit_reports** (AuditReport) — id, project_id → projects, url, status,
   score, results (JSONB), completed_at, timestamps
+- **core_web_vitals** (CoreWebVitals) — id, project_id → projects, url,
+  strategy, fcp, lcp, tbt, cls, speed_index, field_inp, performance_score,
+  accessibility_score, best_practices_score, seo_score, report_json (JSONB —
+  insights/diagnostics/passed/screenshots/metadata/runs), scanned_at, timestamps
 - **keywords** — id, project_id → projects, seed_keyword, term, kind
   (related/long_tail/question), search_intent, difficulty, search_volume,
   cluster_id, cluster_label, trend_score, trend_direction
@@ -231,6 +314,7 @@ rankpilot-ai/
 │   └── api/            # FastAPI (Python, async) backend
 ├── packages/
 │   └── shared/         # Shared TypeScript types & constants (the API contract)
+├── wordpress-plugin/   # RankPilot Connector — the WP plugin users install
 ├── package.json        # Root npm workspaces (web + packages)
 └── README.md
 ```

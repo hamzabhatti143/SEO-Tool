@@ -312,14 +312,23 @@ export default function OptimizerPage() {
             </Section>
 
             <Section title="Readability" suggestions={byCategory.readability}>
-              <Row
-                label="Flesch reading ease"
-                value={`${c.readability.flesch_reading_ease} (${c.readability.assessment})`}
-              />
-              <Row
-                label="Grade level"
-                value={String(c.readability.grade_level)}
-              />
+              {c.readability.flesch_reading_ease === null ? (
+                <Row
+                  label="Readability"
+                  value="Data not available (page has too little text to score)"
+                />
+              ) : (
+                <>
+                  <Row
+                    label="Flesch reading ease"
+                    value={`${c.readability.flesch_reading_ease} (${c.readability.assessment})`}
+                  />
+                  <Row
+                    label="Grade level"
+                    value={String(c.readability.grade_level)}
+                  />
+                </>
+              )}
             </Section>
 
             <Section

@@ -127,8 +127,10 @@ export default function KeywordsPage() {
         <h1 className="text-3xl font-bold tracking-tight">Keyword Research</h1>
         <p className="text-muted-foreground">
           Generate related terms, long-tail variations, and People-Also-Ask
-          questions, auto-grouped into topic clusters with Google Trends
-          signal.
+          questions, auto-grouped into topic clusters with a Google Trends
+          signal. Difficulty and intent are <strong>AI estimates</strong>, not
+          Google Ads / keyword-tool data; the Trend column is real Google
+          Trends interest.
         </p>
       </header>
 
@@ -263,8 +265,18 @@ function ClusterGroup({
             <tr>
               <th className="p-3 font-medium">Keyword</th>
               <th className="p-3 font-medium">Type</th>
-              <th className="p-3 font-medium">Difficulty</th>
-              <th className="p-3 font-medium">Intent</th>
+              <th className="p-3 font-medium">
+                Difficulty{" "}
+                <span className="font-normal text-muted-foreground">
+                  (AI est.)
+                </span>
+              </th>
+              <th className="p-3 font-medium">
+                Intent{" "}
+                <span className="font-normal text-muted-foreground">
+                  (AI est.)
+                </span>
+              </th>
               <th className="p-3 font-medium">Trend</th>
             </tr>
           </thead>

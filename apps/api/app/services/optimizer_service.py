@@ -297,11 +297,17 @@ def _check_placement(
 
 
 def _check_readability(text: str) -> ReadabilityCheck:
+    # textstat needs a meaningful amount of prose to produce a valid score;
+    # on empty/tiny pages it returns misleading numbers (or raises). Treat
+    # those as "unavailable" rather than reporting a fake 0.0/"difficult".
+    if len(re.findall(r"\w+", text)) < 40:
+        return ReadabilityCheck(assessment="unavailable")
+
     try:
         flesch = float(textstat.flesch_reading_ease(text))
         grade = float(textstat.text_standard(text, float_output=True))
-    except Exception:  # noqa: BLE001 - textstat can choke on tiny inputs
-        flesch, grade = 0.0, 0.0
+    except Exception:  # noqa: BLE001 - textstat can choke on odd inputs
+        return ReadabilityCheck(assessment="unavailable")
 
     if flesch >= 80:
         assessment = "very easy"

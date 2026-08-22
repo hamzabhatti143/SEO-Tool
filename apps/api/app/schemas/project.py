@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+Platform = Literal["wordpress", "shopify", "custom"]
 
 
 class ProjectCreate(BaseModel):
@@ -31,6 +34,7 @@ class ProjectRead(BaseModel):
     owner_id: uuid.UUID
     name: str
     domain: str
+    platform: Platform = "custom"
     brand_name: str | None = None
     brand_logo_url: str | None = None
     brand_color: str | None = None

@@ -4,11 +4,19 @@
  * Requests go to `/api/backend/*`, which `next.config.mjs` rewrites to
  * the FastAPI server's `/api/v1/*` during local dev. Authenticated calls
  * attach the FastAPI JWT stored in the NextAuth session as a Bearer token.
+ *
+ * Long-running endpoints (a real Lighthouse scan takes 15–45s) are called
+ * with `{ direct: true }`, which bypasses the Next.js dev rewrite proxy and
+ * hits the backend directly via `NEXT_PUBLIC_API_BASE_URL`. The dev proxy
+ * drops the upstream socket on long requests (ECONNRESET → a spurious 500);
+ * a direct connection holds for the full scan. CORS is enabled on the API.
  */
 
 import { getSession } from "next-auth/react";
 
 const BASE = "/api/backend";
+// Direct backend origin (…/api/v1). Falls back to the proxy when unset (prod).
+const DIRECT_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? BASE;
 
 export interface User {
   id: string;
@@ -18,11 +26,15 @@ export interface User {
   created_at: string;
 }
 
+export type Platform = "wordpress" | "shopify" | "custom";
+export type ConnectionStatus = "connected" | "error" | "disconnected";
+
 export interface Project {
   id: string;
   owner_id: string;
   name: string;
   domain: string;
+  platform: Platform;
   brand_name: string | null;
   brand_logo_url: string | null;
   brand_color: string | null;
@@ -37,6 +49,17 @@ export interface ProjectUpdate {
   brand_logo_url?: string | null;
   brand_color?: string | null;
   custom_domain?: string | null;
+}
+
+// --- Platform connectors (WordPress + Shopify) ---
+export interface Credentials {
+  id: string;
+  project_id: string;
+  platform: Platform;
+  site_url: string | null;
+  status: ConnectionStatus;
+  connected_at: string | null;
+  created_at: string;
 }
 
 // --- Agency Mode ---
@@ -132,6 +155,114 @@ export interface Audit {
   results: AuditResults | null;
   created_at: string;
   completed_at: string | null;
+}
+
+// --- Core Web Vitals (PageSpeed Insights) ---
+export type CWVStrategy = "mobile" | "desktop";
+export type CWVCategoryKey =
+  | "performance"
+  | "accessibility"
+  | "best_practices"
+  | "seo";
+
+export interface CWVAuditItem {
+  id: string;
+  title: string;
+  description: string;
+  score: number | null;
+  display_value: string | null;
+  savings_ms: number | null;
+  savings_bytes: number | null;
+}
+
+export interface CWVCategoryAudits {
+  score: number | null;
+  insights: CWVAuditItem[];
+  diagnostics: CWVAuditItem[];
+  passed_count: number;
+  passed_titles: string[];
+}
+
+export interface CWVLabMetrics {
+  fcp: number | null;
+  lcp: number | null;
+  tbt: number | null;
+  cls: number | null;
+  speed_index: number | null;
+}
+
+export interface CWVRunMetrics extends CWVLabMetrics {
+  performance_score: number | null;
+}
+
+export interface CWVScreenshots {
+  timeline: string[];
+  final: string | null;
+}
+
+export interface CWVMetadata {
+  lighthouse_version: string | null;
+  form_factor: string | null;
+  throttling_method: string | null;
+  fetch_time: string | null;
+  final_url: string | null;
+}
+
+export interface CoreWebVitalsReport {
+  strategy: CWVStrategy;
+  metrics: CWVLabMetrics;
+  field_inp: number | null;
+  categories: Record<CWVCategoryKey, CWVCategoryAudits>;
+  screenshots: CWVScreenshots;
+  metadata: CWVMetadata;
+  runs: CWVRunMetrics[];
+  lcp_element: string | null;
+}
+
+export interface CoreWebVitals {
+  id: string;
+  project_id: string;
+  url: string;
+  strategy: CWVStrategy;
+  fcp: number | null;
+  lcp: number | null;
+  tbt: number | null;
+  cls: number | null;
+  speed_index: number | null;
+  field_inp: number | null;
+  performance_score: number | null;
+  accessibility_score: number | null;
+  best_practices_score: number | null;
+  seo_score: number | null;
+  report: CoreWebVitalsReport | null;
+  scanned_at: string;
+  created_at: string;
+}
+
+// --- CWV fix orchestration ---
+export type ChangeStatus = "applied" | "reverted";
+export type RescanStatus = "completed" | "failed" | "skipped";
+
+export interface ChangeLog {
+  id: string;
+  project_id: string;
+  platform: Platform;
+  issue_type: string;
+  external_change_id: string | null;
+  before_snapshot: Record<string, unknown> | null;
+  after_snapshot: Record<string, unknown> | null;
+  cwv_score_before: number | null;
+  cwv_score_after: number | null;
+  applied_at: string;
+  status: ChangeStatus;
+  created_at: string;
+}
+
+export interface FixResponse {
+  change: ChangeLog;
+  new_scan: CoreWebVitals | null;
+  rescan_status: RescanStatus;
+  detail: string | null;
 }
 
 export type KeywordKind = "related" | "long_tail" | "question";
@@ -263,8 +394,8 @@ export interface OnPageChecks {
   };
   images: { total: number; missing_alt: number; with_keyword_alt: number };
   readability: {
-    flesch_reading_ease: number;
-    grade_level: number;
+    flesch_reading_ease: number | null;
+    grade_level: number | null;
     assessment: string;
   };
 }
@@ -515,9 +646,9 @@ export interface BrokenLinkResult {
 
 async function request<T>(
   path: string,
-  init?: RequestInit & { auth?: boolean }
+  init?: RequestInit & { auth?: boolean; direct?: boolean }
 ): Promise<T> {
-  const { auth = true, ...rest } = init ?? {};
+  const { auth = true, direct = false, ...rest } = init ?? {};
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -531,7 +662,10 @@ async function request<T>(
     }
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...rest, headers });
+  const res = await fetch(`${direct ? DIRECT_BASE : BASE}${path}`, {
+    ...rest,
+    headers,
+  });
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -643,6 +777,27 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  // Platform connectors (WordPress + Shopify)
+  getConnection: (projectId: string) =>
+    request<Credentials | null>(`/connectors?project_id=${projectId}`),
+  connectWordPress: (data: {
+    project_id: string;
+    site_url: string;
+    api_key: string;
+  }) =>
+    request<Credentials>("/connectors/wordpress/connect", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  // Returns the Shopify OAuth URL; the caller redirects the browser there.
+  shopifyInstall: (data: { project_id: string; shop: string }) =>
+    request<{ authorize_url: string }>("/connectors/shopify/install", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  disconnect: (projectId: string) =>
+    request<void>(`/connectors?project_id=${projectId}`, { method: "DELETE" }),
+
   // Website Audit (enqueue → poll → fetch by id)
   enqueueAudit: (data: { project_id: string; url: string }) =>
     request<JobEnqueued>("/audits", {
@@ -652,6 +807,37 @@ export const api = {
   getAudit: (auditId: string) => request<Audit>(`/audits/${auditId}`),
   listAudits: (projectId: string) =>
     request<Audit[]>(`/audits?project_id=${projectId}`),
+
+  // Core Web Vitals (synchronous Lighthouse scan → stored + returned)
+  runCoreWebVitals: (data: {
+    project_id: string;
+    url: string;
+    strategy?: CWVStrategy;
+  }) =>
+    request<CoreWebVitals>("/audit/core-web-vitals", {
+      method: "POST",
+      body: JSON.stringify(data),
+      direct: true, // PageSpeed Insights call is slow — bypass the dev proxy
+    }),
+  listCoreWebVitals: (projectId: string) =>
+    request<CoreWebVitals[]>(`/audit/core-web-vitals?project_id=${projectId}`),
+  getCoreWebVitals: (scanId: string) =>
+    request<CoreWebVitals>(`/audit/core-web-vitals/${scanId}`),
+
+  // CWV fix orchestration (platform-routed; triggers a re-scan)
+  fixAllCwv: (projectId: string, url?: string) =>
+    request<FixResponse>(`/projects/${projectId}/cwv/fix-all`, {
+      method: "POST",
+      body: JSON.stringify({ url: url ?? null }),
+      direct: true, // fix + re-scan is long — bypass the dev proxy
+    }),
+  revertCwvFix: (projectId: string, changeId: string) =>
+    request<FixResponse>(`/projects/${projectId}/cwv/revert/${changeId}`, {
+      method: "POST",
+      direct: true, // revert + re-scan is long — bypass the dev proxy
+    }),
+  listCwvChanges: (projectId: string) =>
+    request<ChangeLog[]>(`/projects/${projectId}/cwv/changes`),
 
   // Keyword Research
   enqueueKeywordResearch: (data: {

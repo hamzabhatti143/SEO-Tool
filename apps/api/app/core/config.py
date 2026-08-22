@@ -46,6 +46,44 @@ class Settings(BaseSettings):
     AUDIT_MAX_LINKS_CHECKED: int = 25
     AUDIT_REQUEST_TIMEOUT: float = 10.0
 
+    # --- Platform connectors (WordPress + Shopify) ---
+    # Public base URL of THIS FastAPI service — used to build the Shopify
+    # OAuth redirect_uri (must be reachable by Shopify; use a tunnel in dev).
+    APP_BASE_URL: str = "http://localhost:8000"
+    # Public base URL of the Next.js app — where the OAuth callback bounces
+    # the browser back to after storing the token.
+    FRONTEND_URL: str = "http://localhost:3000"
+    # Fernet key (32-byte url-safe base64) for encrypting stored credentials.
+    # Leave blank to derive one from SECRET_KEY (fine for dev; set in prod).
+    CREDENTIALS_ENCRYPTION_KEY: str = ""
+    # WordPress: the RankPilot plugin exposes a health-check under this
+    # namespace, i.e. GET {site}/wp-json/{ns}/health.
+    WORDPRESS_API_NAMESPACE: str = "rankpilot/v1"
+    WORDPRESS_CONNECT_TIMEOUT: float = 10.0
+    # Shopify app credentials (from the Shopify Partner dashboard).
+    SHOPIFY_API_KEY: str = ""
+    SHOPIFY_API_SECRET: str = ""
+    SHOPIFY_SCOPES: str = "read_themes,write_themes,read_products,write_products"
+    SHOPIFY_API_VERSION: str = "2024-07"
+    # OAuth install-state token lifetime (signed JWT carrying the project id).
+    SHOPIFY_STATE_TTL_SECONDS: int = 600
+
+    # --- Core Web Vitals (Google PageSpeed Insights API v5) ---
+    # API key from https://developers.google.com/speed/docs/insights/v5/get-started
+    # (env only — never hardcode). Optional for occasional calls, but required
+    # for real quota (free tier: 25,000/day, 240/min).
+    PAGESPEED_API_KEY: str = ""
+    # Override the endpoint (tests/proxies); blank = the official URL.
+    PAGESPEED_API_URL: str = ""
+    # Google runs Lighthouse server-side, so a call can take 20–40s.
+    PAGESPEED_TIMEOUT: float = 60.0
+    # Retries on HTTP 429 (rate limit) / 5xx, with exponential backoff.
+    PAGESPEED_MAX_RETRIES: int = 3
+    PAGESPEED_RETRY_BASE_DELAY: float = 1.0
+    # Runs per scan; the median of each metric is stored to reduce variance.
+    # Each run is a separate API call (counts against quota).
+    PAGESPEED_RUNS: int = 2
+
     # Competitor Intelligence: max pages to crawl per site.
     COMPETITOR_MAX_PAGES: int = 40
     # Concurrent page fetches during a crawl (bounded politeness + speed).

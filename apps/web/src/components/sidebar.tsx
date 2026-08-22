@@ -4,14 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import {
+  Activity,
   FileBarChart,
   FileText,
   Gauge,
+  History,
   LayoutDashboard,
   LayoutGrid,
   Link2,
   LogOut,
   Network,
+  Plug,
   Search,
   Settings,
   SlidersHorizontal,
@@ -27,7 +30,10 @@ import { useProject } from "@/components/project-provider";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/connect", label: "Connect Your Site", icon: Plug },
   { href: "/dashboard/audit", label: "Website Audit", icon: Gauge },
+  { href: "/dashboard/cwv", label: "Core Web Vitals", icon: Activity },
+  { href: "/dashboard/fix-history", label: "Fix History", icon: History },
   {
     href: "/dashboard/optimizer",
     label: "On-Page Optimizer",

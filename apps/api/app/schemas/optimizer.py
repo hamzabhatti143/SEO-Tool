@@ -94,10 +94,13 @@ class ImageCheck(BaseModel):
 
 
 class ReadabilityCheck(BaseModel):
-    flesch_reading_ease: float = 0.0
-    grade_level: float = 0.0
-    # very easy | easy | standard | fairly difficult | difficult
-    assessment: str = "standard"
+    # None when readability could not be computed (empty/too-short page or a
+    # textstat failure) — the UI shows "Data not available" rather than a
+    # misleading 0.0.
+    flesch_reading_ease: float | None = None
+    grade_level: float | None = None
+    # very easy | easy | standard | fairly difficult | difficult | unavailable
+    assessment: str = "unavailable"
 
 
 class OnPageChecks(BaseModel):
