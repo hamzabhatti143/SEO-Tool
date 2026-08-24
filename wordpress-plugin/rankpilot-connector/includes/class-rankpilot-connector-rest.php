@@ -37,6 +37,25 @@ class RankPilot_Connector_REST {
 				'permission_callback' => array( $this, 'authorize' ),
 			)
 		);
+
+		// Core Web Vitals fix engine (snapshot → apply → revert). Same
+		// namespace and Bearer-key permission callback as /health.
+		$fix_routes = array(
+			'/snapshot'  => array( 'RankPilot_Connector_Fixes', 'snapshot' ),
+			'/apply-fix' => array( 'RankPilot_Connector_Fixes', 'apply_fix' ),
+			'/revert'    => array( 'RankPilot_Connector_Fixes', 'revert' ),
+		);
+		foreach ( $fix_routes as $route => $callback ) {
+			register_rest_route(
+				RANKPILOT_CONNECTOR_REST_NAMESPACE,
+				$route,
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => $callback,
+					'permission_callback' => array( $this, 'authorize' ),
+				)
+			);
+		}
 	}
 
 	/**

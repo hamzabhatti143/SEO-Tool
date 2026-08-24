@@ -9,9 +9,10 @@ Orchestrates applying and reverting automated CWV fixes across platforms:
      the CWV score after the change and store a fresh ``CoreWebVitals`` row.
   4. Record a ``ChangeLog`` row tying it all together.
 
-The platform handlers are **stubbed** for now (mock responses) — see the TODOs
-in each. They'll be implemented once the WordPress plugin and Shopify app
-expose their fix/revert endpoints, without changing this orchestration flow.
+The **WordPress** handler is implemented against the RankPilot Connector
+plugin's fix engine (POST /wp-json/rankpilot/v1/{snapshot,apply-fix,revert}).
+The **Shopify** handler is still stubbed (mock responses) until the Shopify app
+exposes its endpoints — the orchestration flow is identical for both.
 """
 
 from __future__ import annotations
@@ -21,14 +22,22 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.crypto import InvalidToken, decrypt
 from app.models.change_log import ChangeLog
 from app.models.core_web_vitals import CoreWebVitals
 from app.models.project import Project
-from app.services import core_web_vitals_service
+from app.services import connector_service, core_web_vitals_service
 from app.services.core_web_vitals_service import CoreWebVitalsError
+
+# The fix RankPilot applies to a WordPress page. lazy_load is the safest,
+# universally-applicable CWV fix; a fuller implementation would pick the fix
+# type(s) from the scan's detected issues.
+_WORDPRESS_FIX_TYPE = "lazy_load"
 
 
 class FixError(Exception):
@@ -55,31 +64,124 @@ class OrchestrationResult:
 
 
 # ---------------------------------------------------------------------------
-# Platform handlers — STUBBED. Replace the mock bodies with real calls.
+# WordPress handler — real calls to the RankPilot Connector plugin
 # ---------------------------------------------------------------------------
+
+
+async def _wp_credentials(
+    db: AsyncSession, project: Project
+) -> tuple[str, str]:
+    """Return (site_url, api_key) for the project's WordPress connection."""
+    cred = await connector_service.get_credentials(db, project.id)
+    if cred is None or cred.platform != "wordpress" or not cred.site_url:
+        raise FixError(
+            "No WordPress connection for this project. Connect the site first."
+        )
+    try:
+        key = decrypt(cred.encrypted_api_key_or_token)
+    except InvalidToken as exc:
+        raise FixError(
+            "Stored WordPress credentials could not be decrypted."
+        ) from exc
+    return cred.site_url.rstrip("/"), key
+
+
+async def _wp_request(
+    site_url: str, key: str, path: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """POST to a plugin fix endpoint with the Bearer key; return parsed JSON."""
+    namespace = settings.WORDPRESS_API_NAMESPACE.strip("/")
+    endpoint = f"{site_url}/wp-json/{namespace}{path}"
+    try:
+        async with httpx.AsyncClient(
+            timeout=settings.WORDPRESS_CONNECT_TIMEOUT
+        ) as client:
+            resp = await client.post(
+                endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {key}"},
+            )
+    except httpx.HTTPError as exc:
+        raise FixError(f"Could not reach the WordPress plugin: {exc}") from exc
+
+    if resp.status_code != 200:
+        detail = _wp_error_detail(resp)
+        raise FixError(f"WordPress plugin error on {path}: {detail}")
+    return resp.json()
+
+
+def _wp_error_detail(resp: httpx.Response) -> str:
+    try:
+        body = resp.json()
+        return str(body.get("message") or body).strip()[:200]
+    except ValueError:
+        return f"HTTP {resp.status_code}"
 
 
 async def _wordpress_fix_all(
     db: AsyncSession, project: Project, url: str
 ) -> FixHandlerResult:
-    # TODO(connectors): call the RankPilot WordPress plugin's fix endpoint
-    #   (e.g. POST {site}/wp-json/rankpilot/v1/fixes) with the project's
-    #   decrypted API key. The plugin should apply CWV fixes (add width/height
-    #   to images, defer non-critical JS, preload the LCP image, set
-    #   font-display, purge unused CSS) and return a change id we can revert.
-    return FixHandlerResult(
-        external_change_id=f"wp-change-{uuid.uuid4().hex[:12]}",
-        before_snapshot={"mock": True, "note": "plugin captures the prior state"},
-        after_snapshot={
-            "mock": True,
-            "fixes_applied": [
-                "unsized_images",
-                "font_display_missing",
-                "render_blocking_resources",
-            ],
-        },
-        detail="STUB: WordPress fix handler not implemented — returned a mock.",
+    """Snapshot + apply a fix on the connected WordPress site via the plugin."""
+    site_url, key = await _wp_credentials(db, project)
+
+    snap = await _wp_request(
+        site_url, key, "/snapshot",
+        {"change_type": _WORDPRESS_FIX_TYPE, "target": url},
     )
+    change_id = snap.get("change_id")
+    if change_id is None:
+        raise FixError("WordPress /snapshot did not return a change_id.")
+
+    applied = await _wp_request(
+        site_url, key, "/apply-fix",
+        {"change_id": change_id, "fix_type": _WORDPRESS_FIX_TYPE},
+    )
+
+    return FixHandlerResult(
+        external_change_id=str(change_id),
+        issue_type="core_web_vitals",
+        before_snapshot={
+            "change_type": _WORDPRESS_FIX_TYPE,
+            "target": url,
+            "snapshot": applied.get("before_snapshot"),
+        },
+        after_snapshot={
+            "change_type": _WORDPRESS_FIX_TYPE,
+            "snapshot": applied.get("after_snapshot"),
+        },
+        detail=(
+            f"Applied '{_WORDPRESS_FIX_TYPE}' via the WordPress plugin "
+            f"(change #{change_id})."
+        ),
+    )
+
+
+async def _wordpress_revert(
+    db: AsyncSession, project: Project, change: ChangeLog
+) -> FixHandlerResult:
+    """Revert a previously applied change via the plugin's /revert endpoint."""
+    site_url, key = await _wp_credentials(db, project)
+    try:
+        change_id = int(change.external_change_id)
+    except (TypeError, ValueError) as exc:
+        raise FixError(
+            "This change has no valid WordPress change id to revert."
+        ) from exc
+
+    await _wp_request(site_url, key, "/revert", {"change_id": change_id})
+
+    return FixHandlerResult(
+        external_change_id=change.external_change_id,
+        issue_type=change.issue_type,
+        before_snapshot=change.after_snapshot,
+        after_snapshot=change.before_snapshot,
+        detail=f"Reverted WordPress change #{change_id} via the plugin.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Shopify handler — STILL STUBBED (mock responses)
+# ---------------------------------------------------------------------------
 
 
 async def _shopify_fix_all(
@@ -98,20 +200,6 @@ async def _shopify_fix_all(
             "fixes_applied": ["lazy_load_images", "unsized_images", "preconnect"],
         },
         detail="STUB: Shopify fix handler not implemented — returned a mock.",
-    )
-
-
-async def _wordpress_revert(
-    db: AsyncSession, project: Project, change: ChangeLog
-) -> FixHandlerResult:
-    # TODO(connectors): call the plugin revert endpoint with
-    #   change.external_change_id to roll back that change set.
-    return FixHandlerResult(
-        external_change_id=change.external_change_id,
-        issue_type=change.issue_type,
-        before_snapshot=change.after_snapshot,
-        after_snapshot=change.before_snapshot,
-        detail="STUB: WordPress revert handler not implemented — returned a mock.",
     )
 
 

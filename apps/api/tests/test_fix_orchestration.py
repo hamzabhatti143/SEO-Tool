@@ -71,8 +71,34 @@ def _patch_scan(monkeypatch, *, score=88.0, fails=False):
     )
 
 
-async def test_fix_all_wordpress_routes_and_logs(monkeypatch) -> None:
+def _patch_wp(monkeypatch):
+    """Fake the WordPress plugin HTTP calls; return the recorded call list."""
+    calls: list = []
+
+    async def fake_creds(_db, _project):
+        return ("https://wp.example", "APIKEY")
+
+    async def fake_request(_site, _key, path, payload):
+        calls.append((path, payload))
+        if path == "/snapshot":
+            return {"change_id": 42, "status": "snapshotted"}
+        if path == "/apply-fix":
+            return {
+                "change_id": 42,
+                "status": "applied",
+                "before_snapshot": "BEFORE",
+                "after_snapshot": "AFTER",
+            }
+        return {"change_id": 42, "status": "reverted"}
+
+    monkeypatch.setattr(fix_service, "_wp_credentials", fake_creds)
+    monkeypatch.setattr(fix_service, "_wp_request", fake_request)
+    return calls
+
+
+async def test_fix_all_wordpress_calls_plugin_and_logs(monkeypatch) -> None:
     _patch_scan(monkeypatch, score=88.0)
+    calls = _patch_wp(monkeypatch)
     db = FakeSession(latest=SimpleNamespace(performance_score=42.0, url="x"))
     project = _project("wordpress")
 
@@ -81,12 +107,31 @@ async def test_fix_all_wordpress_routes_and_logs(monkeypatch) -> None:
     assert result.rescan_status == "completed"
     change = result.change
     assert change.platform == "wordpress"
-    assert change.external_change_id.startswith("wp-change-")
+    # external_change_id is the plugin's change_id (not a mock uuid).
+    assert change.external_change_id == "42"
     assert change.issue_type == "core_web_vitals"
     assert change.cwv_score_before == 42.0
     assert change.cwv_score_after == 88.0
     assert change.status == "applied"
+    assert change.after_snapshot["snapshot"] == "AFTER"
     assert change in db.added
+    # /snapshot first, then /apply-fix.
+    assert [path for path, _ in calls] == ["/snapshot", "/apply-fix"]
+
+
+async def test_wordpress_fix_requires_connection(monkeypatch) -> None:
+    _patch_scan(monkeypatch)
+
+    async def no_creds(_db, _project_id):
+        return None
+
+    monkeypatch.setattr(
+        fix_service.connector_service, "get_credentials", no_creds
+    )
+    with pytest.raises(FixError, match="Connect the site"):
+        await fix_service.apply_fix_all(
+            FakeSession(), _project("wordpress"), "https://example.com"
+        )
 
 
 async def test_fix_all_shopify_uses_backup_theme_id(monkeypatch) -> None:
@@ -110,6 +155,7 @@ async def test_fix_all_rejects_unsupported_platform(monkeypatch) -> None:
 
 async def test_fix_all_survives_rescan_failure(monkeypatch) -> None:
     _patch_scan(monkeypatch, fails=True)
+    _patch_wp(monkeypatch)
     result = await fix_service.apply_fix_all(
         FakeSession(), _project("wordpress"), "https://example.com"
     )
@@ -123,13 +169,14 @@ async def test_fix_all_survives_rescan_failure(monkeypatch) -> None:
 
 async def test_revert_flips_status_and_rescans(monkeypatch) -> None:
     _patch_scan(monkeypatch, score=90.0)
+    calls = _patch_wp(monkeypatch)
     from app.models.change_log import ChangeLog
 
     change = ChangeLog(
         project_id=uuid.uuid4(),
         platform="wordpress",
         issue_type="core_web_vitals",
-        external_change_id="wp-change-abc",
+        external_change_id="42",  # must parse to the plugin's change_id
         before_snapshot={"a": 1},
         after_snapshot={"b": 2},
         status="applied",
@@ -140,6 +187,7 @@ async def test_revert_flips_status_and_rescans(monkeypatch) -> None:
     assert result.change.status == "reverted"
     assert result.change.cwv_score_after == 90.0
     assert result.rescan_status == "completed"
+    assert ("/revert", {"change_id": 42}) in calls
 
 
 async def test_revert_rejects_already_reverted(monkeypatch) -> None:

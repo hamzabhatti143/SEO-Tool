@@ -53,6 +53,9 @@ class RankPilot_Connector {
 	private function __construct() {
 		$this->rest  = new RankPilot_Connector_REST();
 		$this->admin = new RankPilot_Connector_Admin();
+		// Create/upgrade the changes table for sites updated in place (not just
+		// on fresh activation).
+		RankPilot_Connector_Fixes::maybe_upgrade();
 		$this->register_hooks();
 	}
 
@@ -63,6 +66,14 @@ class RankPilot_Connector {
 	 */
 	private function register_hooks() {
 		add_action( 'rest_api_init', array( $this->rest, 'register_routes' ) );
+
+		// Front-end: apply the defer_css fix to any deferred stylesheet handles.
+		add_filter(
+			'style_loader_tag',
+			array( 'RankPilot_Connector_Fixes', 'filter_defer_css' ),
+			10,
+			2
+		);
 
 		if ( is_admin() ) {
 			add_action( 'admin_menu', array( $this->admin, 'register_menu' ) );
