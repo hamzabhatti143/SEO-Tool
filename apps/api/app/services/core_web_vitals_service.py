@@ -321,7 +321,23 @@ def _audit_item(aid: str, audit: dict[str, Any]) -> AuditItem:
         savings_bytes=int(savings_bytes)
         if isinstance(savings_bytes, int | float)
         else None,
+        resource_urls=_audit_urls(details),
     )
+
+
+def _audit_urls(details: dict[str, Any], limit: int = 20) -> list[str]:
+    """Collect offending resource URLs from an audit's details.items."""
+    items = details.get("items")
+    if not isinstance(items, list):
+        return []
+    urls: list[str] = []
+    for it in items:
+        url = it.get("url") if isinstance(it, dict) else None
+        if isinstance(url, str) and url not in urls:
+            urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
 
 
 def _screenshots(audits: dict[str, Any]) -> Screenshots:

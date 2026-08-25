@@ -67,12 +67,13 @@ class RankPilot_Connector {
 	private function register_hooks() {
 		add_action( 'rest_api_init', array( $this->rest, 'register_routes' ) );
 
-		// Front-end: apply the defer_css fix to any deferred stylesheet handles.
+		// Front-end: apply the defer_css fix to any deferred stylesheet handles
+		// or URLs (3rd arg is the href).
 		add_filter(
 			'style_loader_tag',
 			array( 'RankPilot_Connector_Fixes', 'filter_defer_css' ),
 			10,
-			2
+			3
 		);
 
 		if ( is_admin() ) {

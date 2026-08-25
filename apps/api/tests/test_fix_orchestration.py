@@ -72,24 +72,30 @@ def _patch_scan(monkeypatch, *, score=88.0, fails=False):
 
 
 def _patch_wp(monkeypatch):
-    """Fake the WordPress plugin HTTP calls; return the recorded call list."""
+    """Fake the WordPress plugin HTTP calls; return the recorded call list.
+
+    /snapshot hands out incrementing change_ids so multi-fix plans get distinct
+    ids; /apply-fix and /revert echo the id.
+    """
     calls: list = []
+    counter = {"n": 0}
 
     async def fake_creds(_db, _project):
         return ("https://wp.example", "APIKEY")
 
-    async def fake_request(_site, _key, path, payload):
+    async def fake_request(_site, _key, path, payload, ok_statuses=(200,)):
         calls.append((path, payload))
         if path == "/snapshot":
-            return {"change_id": 42, "status": "snapshotted"}
+            counter["n"] += 1
+            return {"change_id": counter["n"], "status": "snapshotted"}
         if path == "/apply-fix":
             return {
-                "change_id": 42,
+                "change_id": payload["change_id"],
                 "status": "applied",
                 "before_snapshot": "BEFORE",
                 "after_snapshot": "AFTER",
             }
-        return {"change_id": 42, "status": "reverted"}
+        return {"change_id": payload["change_id"], "status": "reverted"}
 
     monkeypatch.setattr(fix_service, "_wp_credentials", fake_creds)
     monkeypatch.setattr(fix_service, "_wp_request", fake_request)
@@ -99,7 +105,9 @@ def _patch_wp(monkeypatch):
 async def test_fix_all_wordpress_calls_plugin_and_logs(monkeypatch) -> None:
     _patch_scan(monkeypatch, score=88.0)
     calls = _patch_wp(monkeypatch)
-    db = FakeSession(latest=SimpleNamespace(performance_score=42.0, url="x"))
+    # No report_json on the baseline → the plan falls back to a single lazy_load.
+    latest = SimpleNamespace(performance_score=42.0, url="x", report_json=None)
+    db = FakeSession(latest=latest)
     project = _project("wordpress")
 
     result = await fix_service.apply_fix_all(db, project, "https://example.com")
@@ -108,15 +116,86 @@ async def test_fix_all_wordpress_calls_plugin_and_logs(monkeypatch) -> None:
     change = result.change
     assert change.platform == "wordpress"
     # external_change_id is the plugin's change_id (not a mock uuid).
-    assert change.external_change_id == "42"
+    assert change.external_change_id == "1"
     assert change.issue_type == "core_web_vitals"
     assert change.cwv_score_before == 42.0
     assert change.cwv_score_after == 88.0
     assert change.status == "applied"
-    assert change.after_snapshot["snapshot"] == "AFTER"
+    assert change.after_snapshot["changes"][0]["after"] == "AFTER"
     assert change in db.added
     # /snapshot first, then /apply-fix.
     assert [path for path, _ in calls] == ["/snapshot", "/apply-fix"]
+
+
+def test_wordpress_fix_plan_from_issues() -> None:
+    report = {
+        "categories": {
+            "performance": {
+                "insights": [
+                    {"id": "unsized-images"},
+                    {
+                        "id": "uses-optimized-images",
+                        "resource_urls": ["https://x/a.jpg", "https://x/b.jpg"],
+                    },
+                    {
+                        "id": "render-blocking-resources",
+                        "resource_urls": ["https://x/app.css", "https://x/lib.js"],
+                    },
+                ],
+                "diagnostics": [{"id": "font-display"}],
+            }
+        }
+    }
+    plan = fix_service._wordpress_fix_plan(report, "https://x/page")
+    pairs = {(p["change_type"], p["target"]) for p in plan}
+    assert ("image_dimensions", "https://x/page") in pairs
+    assert ("font_display", "style.css") in pairs
+    assert ("image_compression", "https://x/a.jpg") in pairs
+    assert ("image_compression", "https://x/b.jpg") in pairs
+    assert ("defer_css", "https://x/app.css") in pairs
+    # JS render-blocking resources are not deferrable via defer_css.
+    assert ("defer_css", "https://x/lib.js") not in pairs
+    # Image issues present → lazy-load the page too.
+    assert ("lazy_load", "https://x/page") in pairs
+
+
+def test_wordpress_fix_plan_falls_back_to_lazy_load() -> None:
+    assert fix_service._wordpress_fix_plan(None, "https://x/p") == [
+        {"change_type": "lazy_load", "target": "https://x/p"}
+    ]
+
+
+async def test_fix_all_wordpress_applies_multiple_fixes(monkeypatch) -> None:
+    _patch_scan(monkeypatch, score=90.0)
+    calls = _patch_wp(monkeypatch)
+    report = {
+        "categories": {
+            "performance": {
+                "insights": [
+                    {"id": "unsized-images"},
+                    {
+                        "id": "uses-optimized-images",
+                        "resource_urls": ["https://x/a.jpg"],
+                    },
+                ],
+                "diagnostics": [],
+            }
+        }
+    }
+    latest = SimpleNamespace(
+        performance_score=50.0, url="https://x/page", report_json=report
+    )
+    result = await fix_service.apply_fix_all(
+        FakeSession(latest=latest), _project("wordpress"), "https://x/page"
+    )
+    change = result.change
+    ids = change.external_change_id.split(",")
+    types = {c["change_type"] for c in change.after_snapshot["changes"]}
+    # image_dimensions + image_compression + lazy_load, each a distinct id.
+    assert len(ids) == 3
+    assert types == {"image_dimensions", "image_compression", "lazy_load"}
+    # Two plugin calls (snapshot + apply-fix) per applied fix.
+    assert len(calls) == 6
 
 
 async def test_wordpress_fix_requires_connection(monkeypatch) -> None:

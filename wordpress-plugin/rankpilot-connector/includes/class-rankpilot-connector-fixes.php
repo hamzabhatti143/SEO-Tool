@@ -500,14 +500,18 @@ class RankPilot_Connector_Fixes {
 	/**
 	 * Front-end filter: load deferred stylesheets asynchronously
 	 * (media="print" onload swap + noscript fallback). Hooked to
-	 * style_loader_tag from the bootstrap.
+	 * style_loader_tag from the bootstrap. A deferred target may be a
+	 * stylesheet **handle** or its **href/URL** (the backend targets
+	 * render-blocking CSS by URL, since it doesn't know WP handles).
 	 *
 	 * @param string $tag    The <link> tag HTML.
 	 * @param string $handle The stylesheet handle.
+	 * @param string $href   The stylesheet URL.
 	 * @return string
 	 */
-	public static function filter_defer_css( $tag, $handle ) {
-		if ( ! in_array( $handle, self::deferred_handles(), true ) ) {
+	public static function filter_defer_css( $tag, $handle, $href = '' ) {
+		$targets = self::deferred_handles();
+		if ( ! in_array( $handle, $targets, true ) && ! in_array( $href, $targets, true ) ) {
 			return $tag;
 		}
 		$deferred = preg_replace(

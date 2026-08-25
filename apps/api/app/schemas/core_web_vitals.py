@@ -55,6 +55,9 @@ class AuditItem(BaseModel):
     # Machine-readable savings for sorting, when present.
     savings_ms: float | None = None
     savings_bytes: int | None = None
+    # Offending resource URLs (from details.items) — lets the fix orchestrator
+    # target specific images/stylesheets on the connected platform.
+    resource_urls: list[str] = Field(default_factory=list)
 
 
 class CategoryAudits(BaseModel):

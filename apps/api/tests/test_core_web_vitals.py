@@ -53,7 +53,11 @@ _AUDITS = {
         "Eliminate render-blocking resources",
         score=0.5,
         sdm="metricSavings",
-        details={"type": "opportunity", "overallSavingsMs": 700},
+        details={
+            "type": "opportunity",
+            "overallSavingsMs": 700,
+            "items": [{"url": "https://x/app.css", "wastedMs": 700}],
+        },
         display_value="Est savings of 700 ms",
     ),
     "uses-long-cache-ttl": _audit(
@@ -148,6 +152,8 @@ def test_audit_classification() -> None:
     # Opportunity with savings → insight (metric audits excluded).
     assert [a.id for a in perf.insights] == ["render-blocking-resources"]
     assert perf.insights[0].savings_ms == 700
+    # Offending resource URLs are retained for the fix orchestrator.
+    assert perf.insights[0].resource_urls == ["https://x/app.css"]
     # Failing informational + null-informative → diagnostics.
     diag_ids = {a.id for a in perf.diagnostics}
     assert diag_ids == {"uses-long-cache-ttl", "non-composited-animations"}

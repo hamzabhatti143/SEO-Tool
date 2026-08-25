@@ -64,7 +64,7 @@ Supported `change_type` / `fix_type` values: `image_compression`, `lazy_load`,
 | image_compression  | attachment id, image URL, or file path   | the image file bytes (in uploads)|
 | lazy_load          | post/page id or URL                      | the post_content HTML            |
 | image_dimensions   | post/page id or URL                      | the post_content HTML            |
-| defer_css          | a registered stylesheet **handle**       | the deferred-handles option      |
+| defer_css          | a stylesheet **handle** or its **URL**   | the deferred-targets option      |
 | font_display       | a CSS file path inside the active theme  | the CSS file content             |
 
 ### `POST /rankpilot/v1/snapshot`
