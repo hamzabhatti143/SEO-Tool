@@ -21,8 +21,24 @@ from app.models.audit import AuditReport
 from app.models.user import User
 from app.schemas.audit import AuditRead, AuditRequest
 from app.schemas.jobs import JobEnqueued
+from app.schemas.technical_seo import TechnicalSeoResponse
+from app.services import technical_seo_service
 
 router = APIRouter()
+
+
+@router.get("/technical-seo", response_model=TechnicalSeoResponse)
+async def get_technical_seo(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TechnicalSeoResponse:
+    """Structured-data, robots.txt, and llms.txt audit results for a project.
+
+    Populated automatically by the Website Audit scan.
+    """
+    await ensure_project_access(project_id, current_user, db)
+    return await technical_seo_service.get_technical_seo(db, project_id)
 
 
 @router.post("", response_model=JobEnqueued, status_code=status.HTTP_202_ACCEPTED)

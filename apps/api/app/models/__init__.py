@@ -20,6 +20,7 @@ from app.models.page import ProjectPage
 from app.models.project import Project
 from app.models.rank_tracking import RankSnapshot, TrackedKeyword
 from app.models.subscription import Subscription
+from app.models.technical_seo import LlmsTxtAudit, RobotsAudit, SchemaAudit
 from app.models.user import User
 
 __all__ = [
@@ -39,4 +40,7 @@ __all__ = [
     "ProjectMember",
     "ProjectInvite",
     "ClientShareLink",
+    "SchemaAudit",
+    "RobotsAudit",
+    "LlmsTxtAudit",
 ]

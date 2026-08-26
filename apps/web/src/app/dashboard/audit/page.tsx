@@ -1,7 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  Braces,
+  CheckCircle2,
+  ChevronDown,
+  FileText,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +30,9 @@ import {
   type Audit,
   type AuditIssue,
   type IssueSeverity,
+  type RobotsAudit,
+  type SchemaAudit,
+  type TechnicalSeoResponse,
 } from "@/lib/api";
 
 const SEVERITY_VARIANT: Record<
@@ -44,6 +56,7 @@ export default function AuditPage() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [audit, setAudit] = React.useState<Audit | null>(null);
+  const [tech, setTech] = React.useState<TechnicalSeoResponse | null>(null);
 
   async function handleRun(e: React.FormEvent) {
     e.preventDefault();
@@ -54,11 +67,18 @@ export default function AuditPage() {
     setBusy(true);
     setError(null);
     setAudit(null);
+    setTech(null);
     try {
       const { audit_id } = await runJob<{ audit_id: string; score: number }>(
         () => api.enqueueAudit({ project_id: currentProject.id, url })
       );
       setAudit(await api.getAudit(audit_id));
+      // Structured data / robots.txt / llms.txt run as part of the same scan.
+      try {
+        setTech(await api.getTechnicalSeo(currentProject.id));
+      } catch {
+        /* technical-SEO extras are best-effort */
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Audit failed");
     } finally {
@@ -260,7 +280,195 @@ export default function AuditPage() {
           </Card>
         </>
       )}
+
+      {tech && (
+        <>
+          <StructuredDataCard schemas={tech.schema_audits} />
+          <RobotsCard robots={tech.robots} />
+          <LlmsCard llms={tech.llms} />
+        </>
+      )}
     </div>
+  );
+}
+
+// --- Technical SEO sections ------------------------------------------------
+
+function StructuredDataCard({ schemas }: { schemas: SchemaAudit[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Braces className="h-5 w-5 text-primary" /> Structured Data
+        </CardTitle>
+        <CardDescription>
+          JSON-LD, Microdata &amp; RDFa schema.org markup and validation.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {schemas.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            None found — add schema markup (e.g. Organization, Article, Product)
+            so search engines can show rich results.
+          </div>
+        ) : (
+          schemas.map((s) => <SchemaRow key={s.id} schema={s} />)
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SchemaRow({ schema }: { schema: SchemaAudit }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 p-3 text-left"
+      >
+        {schema.is_valid ? (
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+        ) : (
+          <XCircle className="h-4 w-4 shrink-0 text-destructive" />
+        )}
+        <span className="font-medium">{schema.schema_type}</span>
+        <Badge variant="outline" className="uppercase">
+          {schema.fmt}
+        </Badge>
+        <Badge variant={schema.is_valid ? "success" : "warning"}>
+          {schema.is_valid ? "Valid" : "Has Issues"}
+        </Badge>
+        <ChevronDown
+          className={`ml-auto h-4 w-4 text-muted-foreground transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      <div className="px-3 pb-3">
+        {schema.missing_properties.length > 0 && (
+          <p className="text-sm text-destructive">
+            Missing required: {schema.missing_properties.join(", ")}
+          </p>
+        )}
+        {open && schema.raw_schema && (
+          <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-3 text-xs">
+            {JSON.stringify(schema.raw_schema, null, 2)}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RobotsCard({ robots }: { robots: RobotsAudit | null }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="h-5 w-5 text-primary" /> Robots.txt
+          {robots && (
+            <Badge variant={robots.exists ? "success" : "warning"}>
+              {robots.exists ? "Found" : "Not found"}
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          Crawl directives and Sitemap declarations for search engines.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {(robots?.issues_found?.length ?? 0) > 0 && (
+          <div className="space-y-2">
+            {robots!.issues_found.map((issue, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 rounded-md border p-2 text-sm"
+              >
+                <Badge
+                  variant={
+                    issue.severity === "critical"
+                      ? "destructive"
+                      : issue.severity === "warning"
+                        ? "warning"
+                        : "secondary"
+                  }
+                >
+                  {issue.severity}
+                </Badge>
+                <span>{issue.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {robots?.parsed_rules?.sitemaps &&
+          robots.parsed_rules.sitemaps.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Sitemaps: {robots.parsed_rules.sitemaps.join(", ")}
+            </p>
+          )}
+        {robots?.exists && robots.raw_content ? (
+          <pre className="max-h-72 overflow-auto rounded bg-muted p-3 text-xs">
+            {robots.raw_content}
+          </pre>
+        ) : (
+          !robots?.exists && (
+            <p className="text-sm text-muted-foreground">
+              No robots.txt was found at the site root.
+            </p>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LlmsCard({ llms }: { llms: TechnicalSeoResponse["llms"] }) {
+  const found = llms?.exists;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bot className="h-5 w-5 text-primary" /> llms.txt
+          <Badge variant={found ? "success" : "secondary"}>
+            {found ? "Found" : "Not found"}
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          An emerging standard telling AI crawlers what to read on your site.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {found ? (
+          <>
+            <div className="flex items-center gap-2 text-sm">
+              Spec format:
+              <Badge variant={llms!.follows_spec_format ? "success" : "warning"}>
+                {llms!.follows_spec_format ? "Compliant" : "Non-standard"}
+              </Badge>
+            </div>
+            {llms!.raw_content && (
+              <pre className="max-h-72 overflow-auto rounded bg-muted p-3 text-xs">
+                {llms!.raw_content}
+              </pre>
+            )}
+          </>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <strong>llms.txt not implemented.</strong> This isn&apos;t an error
+              — adoption is still emerging. A well-formed <code>llms.txt</code>{" "}
+              helps AI assistants understand and cite your key pages.
+            </p>
+            <Button variant="outline" size="sm" asChild>
+              <a href="/dashboard/content">Generate llms.txt</a>
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

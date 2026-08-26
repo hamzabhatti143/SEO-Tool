@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.keyword import Keyword
     from app.models.page import ProjectPage
     from app.models.rank_tracking import TrackedKeyword
+    from app.models.technical_seo import LlmsTxtAudit, RobotsAudit, SchemaAudit
     from app.models.user import User
 
 
@@ -62,6 +63,15 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         cascade="all, delete-orphan",
     )
     change_logs: Mapped[list[ChangeLog]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    schema_audits: Mapped[list[SchemaAudit]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    robots_audits: Mapped[list[RobotsAudit]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    llms_txt_audits: Mapped[list[LlmsTxtAudit]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
     keywords: Mapped[list[Keyword]] = relationship(

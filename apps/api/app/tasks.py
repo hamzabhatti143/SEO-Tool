@@ -11,6 +11,7 @@ the DB and return an id/summary; stateless tasks return the full payload.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -28,8 +29,11 @@ from app.services import (
     gap_analysis_service,
     internal_link_service,
     keyword_service,
+    technical_seo_service,
 )
 from app.services.project_summary import build_user_summary
+
+logger = logging.getLogger(__name__)
 
 
 async def task_research_keywords(
@@ -89,6 +93,16 @@ async def task_run_audit(ctx: dict, project_id: str, url: str) -> dict[str, Any]
         audit.completed_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(audit)
+
+        # Technical-SEO extras (structured data, robots.txt, llms.txt) run on
+        # the same trigger as the audit. Best-effort: never fail the audit.
+        try:
+            await technical_seo_service.run_and_store(
+                db, uuid.UUID(project_id), url
+            )
+        except Exception as exc:  # noqa: BLE001 - degrade cleanly
+            logger.warning("Technical-SEO analysis failed for %s: %s", url, exc)
+
         return {"audit_id": str(audit.id), "score": score}
 
 

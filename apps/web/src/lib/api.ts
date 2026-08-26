@@ -157,6 +157,61 @@ export interface Audit {
   completed_at: string | null;
 }
 
+// --- Technical SEO (structured data / robots.txt / llms.txt) ---
+export interface SchemaAudit {
+  id: string;
+  project_id: string;
+  page_url: string;
+  schema_type: string;
+  fmt: string;
+  is_valid: boolean;
+  missing_properties: string[];
+  raw_schema: Record<string, unknown> | null;
+  detected_at: string;
+}
+
+export interface RobotsIssue {
+  code: string;
+  severity: string;
+  message: string;
+}
+
+export interface UserAgentRules {
+  user_agent: string;
+  disallow: string[];
+  allow: string[];
+}
+
+export interface RobotsParsedRules {
+  user_agents: UserAgentRules[];
+  sitemaps: string[];
+}
+
+export interface RobotsAudit {
+  id: string;
+  project_id: string;
+  exists: boolean;
+  raw_content: string | null;
+  parsed_rules: RobotsParsedRules | null;
+  issues_found: RobotsIssue[];
+  checked_at: string;
+}
+
+export interface LlmsTxtAudit {
+  id: string;
+  project_id: string;
+  exists: boolean;
+  raw_content: string | null;
+  follows_spec_format: boolean;
+  checked_at: string;
+}
+
+export interface TechnicalSeoResponse {
+  schema_audits: SchemaAudit[];
+  robots: RobotsAudit | null;
+  llms: LlmsTxtAudit | null;
+}
+
 // --- Core Web Vitals (PageSpeed Insights) ---
 export type CWVStrategy = "mobile" | "desktop";
 export type CWVCategoryKey =
@@ -805,6 +860,10 @@ export const api = {
       body: JSON.stringify(data),
     }),
   getAudit: (auditId: string) => request<Audit>(`/audits/${auditId}`),
+  getTechnicalSeo: (projectId: string) =>
+    request<TechnicalSeoResponse>(
+      `/audits/technical-seo?project_id=${projectId}`
+    ),
   listAudits: (projectId: string) =>
     request<Audit[]>(`/audits?project_id=${projectId}`),
 

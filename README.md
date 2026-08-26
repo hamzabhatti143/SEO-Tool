@@ -60,6 +60,18 @@ threadpool, batched 5 terms at a time and capped by
 `KEYWORD_TREND_MAX_TERMS` — throttled terms simply come back without a
 trend rather than failing the request.
 
+The Website Audit scan also runs three **technical-SEO** checks automatically
+(same trigger as the audit crawl, in `tasks.task_run_audit` →
+`technical_seo_service`), each replacing the project's previous rows:
+**Structured Data** (detects + validates JSON-LD / Microdata / RDFa schema.org
+blocks against per-type required properties → `schema_audits`), **Robots.txt**
+(fetches `/robots.txt`, parses user-agent groups + Sitemap directives, flags
+missing file / `Disallow: /` / blocked CSS-JS / no sitemap → `robots_audits`),
+and **llms.txt** (fetches `/llms.txt`, checks the markdown spec format; "Not
+Found" is informational, not an error → `llms_txt_audits`). Results surface as
+**Structured Data / Robots.txt / llms.txt** sections on the Audit dashboard, via
+`GET /audits/technical-seo?project_id=…`.
+
 Core Web Vitals extends the Website Audit module with a **performance
 detection engine** backed by the **Google PageSpeed Insights (PSI) API v5** —
 no local browser. `POST /audit/core-web-vitals` calls `…/runPagespeed` for the
@@ -273,6 +285,13 @@ PostgreSQL via async SQLAlchemy 2.x. Tables (see `apps/api/app/models`):
   strategy, fcp, lcp, tbt, cls, speed_index, field_inp, performance_score,
   accessibility_score, best_practices_score, seo_score, report_json (JSONB —
   insights/diagnostics/passed/screenshots/metadata/runs), scanned_at, timestamps
+- **schema_audits** (SchemaAudit) — id, project_id → projects, page_url,
+  schema_type, fmt (json-ld/microdata/rdfa), is_valid, missing_properties
+  (JSONB), raw_schema (JSONB), detected_at, timestamps
+- **robots_audits** (RobotsAudit) — id, project_id → projects, exists,
+  raw_content, parsed_rules (JSONB), issues_found (JSONB), checked_at, timestamps
+- **llms_txt_audits** (LlmsTxtAudit) — id, project_id → projects, exists,
+  raw_content, follows_spec_format, checked_at, timestamps
 - **keywords** — id, project_id → projects, seed_keyword, term, kind
   (related/long_tail/question), search_intent, difficulty, search_volume,
   cluster_id, cluster_label, trend_score, trend_direction
