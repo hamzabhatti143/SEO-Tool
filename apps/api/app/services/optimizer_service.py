@@ -1,13 +1,15 @@
 """On-Page SEO Optimizer service.
 
-Crawls a URL (httpx + BeautifulSoup), analyzes it against a target
-keyword across meta/heading/placement/density/link/image/readability
-dimensions, asks the AI for LSI + missing keywords, and rolls everything
-up into a 0–100 score with categorized suggestions.
+Crawls a URL (httpx + BeautifulSoup) once, then analyzes it against each
+target keyword separately across meta/heading/placement/density/link/image/
+readability dimensions, asks the AI for LSI + missing keywords per keyword,
+and rolls everything up into per-keyword scores plus one combined 0–100 score
+(the primary keyword — the first in the list — is weighted more heavily).
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
 from urllib.parse import urljoin, urlparse
 
@@ -23,6 +25,7 @@ from app.schemas.optimizer import (
     AnchorSample,
     HeadingCheck,
     ImageCheck,
+    KeywordAnalysis,
     KeywordDensityCheck,
     KeywordPlacementCheck,
     LinkCheck,
@@ -53,8 +56,8 @@ async def analyze(request: OptimizeRequest) -> OptimizeResponse:
     url = request.url
     if not urlparse(url).scheme:
         url = f"https://{url}"
-    keyword = request.target_keyword.strip().lower()
 
+    # Fetch the page ONCE; every keyword is analyzed against the same crawl.
     async with httpx.AsyncClient(
         headers={"User-Agent": _USER_AGENT},
         timeout=settings.AUDIT_REQUEST_TIMEOUT,
@@ -65,45 +68,79 @@ async def analyze(request: OptimizeRequest) -> OptimizeResponse:
         soup = BeautifulSoup(response.text, "html.parser")
 
     visible_text = soup.get_text(separator=" ", strip=True)
-
-    meta_title = _check_meta_title(soup, keyword)
-    meta_description = _check_meta_description(soup, keyword)
-    headings = _check_headings(soup, keyword)
     first_para = _first_paragraph(soup)
-    density = _check_density(visible_text, keyword)
-    images = _check_images(soup, keyword)
+    # Keyword-independent checks — computed once and shared across keywords.
     links = _check_links(final_url, soup)
-    placement = _check_placement(
-        meta_title, meta_description, headings, first_para, final_url, images, keyword
-    )
     readability = _check_readability(visible_text)
 
-    checks = OnPageChecks(
-        meta_title=meta_title,
-        meta_description=meta_description,
-        headings=headings,
-        keyword_placement=placement,
-        keyword_density=density,
-        links=links,
-        images=images,
-        readability=readability,
-    )
+    keywords = request.keywords  # validated/normalized: >=1, deduped, trimmed
 
-    ai_suggestions = await _ai_keywords(
-        request.target_keyword, meta_title, headings, visible_text
-    )
+    async def analyze_keyword(raw_keyword: str, role: str) -> KeywordAnalysis:
+        keyword = raw_keyword.lower()
+        meta_title = _check_meta_title(soup, keyword)
+        meta_description = _check_meta_description(soup, keyword)
+        headings = _check_headings(soup, keyword)
+        density = _check_density(visible_text, keyword)
+        images = _check_images(soup, keyword)
+        placement = _check_placement(
+            meta_title,
+            meta_description,
+            headings,
+            first_para,
+            final_url,
+            images,
+            keyword,
+        )
+        checks = OnPageChecks(
+            meta_title=meta_title,
+            meta_description=meta_description,
+            headings=headings,
+            keyword_placement=placement,
+            keyword_density=density,
+            links=links,
+            images=images,
+            readability=readability,
+        )
+        ai_suggestions = await _ai_keywords(
+            raw_keyword, meta_title, headings, visible_text
+        )
+        suggestions = _build_suggestions(checks, ai_suggestions)
+        return KeywordAnalysis(
+            keyword=raw_keyword,
+            role=role,  # type: ignore[arg-type]
+            score=_score(suggestions),
+            checks=checks,
+            ai_suggestions=ai_suggestions,
+            suggestions=suggestions,
+        )
 
-    suggestions = _build_suggestions(checks, ai_suggestions)
-    score = _score(suggestions)
+    roles = ["primary"] + ["secondary"] * (len(keywords) - 1)
+    per_keyword = list(
+        await asyncio.gather(
+            *(analyze_keyword(kw, role) for kw, role in zip(keywords, roles))
+        )
+    )
 
     return OptimizeResponse(
         url=final_url,
-        target_keyword=request.target_keyword,
-        score=score,
-        checks=checks,
-        ai_suggestions=ai_suggestions,
-        suggestions=suggestions,
+        keywords=keywords,
+        primary_keyword=keywords[0],
+        score=_combined_score(per_keyword),
+        per_keyword=per_keyword,
     )
+
+
+def _combined_score(items: list[KeywordAnalysis]) -> float:
+    """Weighted overall score: the primary keyword counts double each secondary."""
+    if not items:
+        return 0.0
+    if len(items) == 1:
+        return items[0].score
+    primary = items[0].score
+    secondary = [i.score for i in items[1:]]
+    weighted_total = primary * 2 + sum(secondary)
+    weight = 2 + len(secondary)
+    return round(weighted_total / weight, 1)
 
 
 # --- Individual checks ---------------------------------------------------

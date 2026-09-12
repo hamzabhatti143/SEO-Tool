@@ -10,12 +10,14 @@ declare module "next-auth" {
     user: {
       id: string;
       tier?: string;
+      mustChangePassword?: boolean;
     } & DefaultSession["user"];
   }
 
   interface User {
     tier?: string;
     accessToken?: string;
+    mustChangePassword?: boolean;
   }
 }
 
@@ -24,5 +26,6 @@ declare module "next-auth/jwt" {
     id?: string;
     tier?: string;
     accessToken?: string;
+    mustChangePassword?: boolean;
   }
 }

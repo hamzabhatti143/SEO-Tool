@@ -14,21 +14,23 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from app import tasks
-from app.api.deps import get_current_user
+from app.api.deps import require_feature
 from app.core.queue import dispatch, get_arq_optional
-from app.models.user import User
-from app.schemas.backlinks import BacklinkProfileRequest, BacklinkProfileResponse
-from app.schemas.backlinks import BrokenLinkRequest
+from app.schemas.backlinks import (
+    BacklinkProfileRequest,
+    BacklinkProfileResponse,
+    BrokenLinkRequest,
+)
 from app.schemas.jobs import JobEnqueued
 from app.services import backlink_service
 
-router = APIRouter()
+# Backlink Center is a Premium-only module (see app.core.feature_flags).
+router = APIRouter(dependencies=[Depends(require_feature("backlink_center"))])
 
 
 @router.post("/profile", response_model=BacklinkProfileResponse)
 async def backlink_profile(
     payload: BacklinkProfileRequest,
-    _current_user: User = Depends(get_current_user),
 ) -> BacklinkProfileResponse:
     """Fetch and aggregate basic backlink data for a domain (fast, inline)."""
     return await backlink_service.get_profile(payload.domain)
@@ -41,7 +43,6 @@ async def backlink_profile(
 )
 async def broken_links(
     payload: BrokenLinkRequest,
-    _current_user: User = Depends(get_current_user),
     arq=Depends(get_arq_optional),
 ) -> JobEnqueued:
     """Enqueue a broken-link crawl (heavy). Poll /jobs/{id} for the result."""

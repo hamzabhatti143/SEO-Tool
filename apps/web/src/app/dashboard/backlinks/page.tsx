@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import { Info, Link2, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +16,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useProject } from "@/components/project-provider";
+import { UpgradeRequired } from "@/components/upgrade-required";
+import { tierAllows } from "@/lib/feature-flags";
 import {
   api,
   runJob,
@@ -24,6 +27,16 @@ import {
 
 export default function BacklinksPage() {
   const { currentProject } = useProject();
+  const { data: session } = useSession();
+
+  if (!tierAllows(session?.user?.tier, "backlink_center")) {
+    return (
+      <UpgradeRequired
+        feature="Backlink Center"
+        description="Backlink profiles and broken-link-building are available on the Premium plan."
+      />
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">

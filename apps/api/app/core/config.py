@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # 7 days — kept in step with the NextAuth session maxAge.
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
 
+    # --- Super admin (isolated from the Users table) ---
+    # Credentials for the platform super admin, checked directly against these
+    # env vars (never the Users DB table). Leave blank to disable admin login.
+    # Admin JWTs carry a distinct "admin" scope claim (see core.security) and
+    # are validated by require_super_admin — completely separate from user auth.
+    SUPER_ADMIN_USERNAME: str = ""
+    SUPER_ADMIN_PASSWORD: str = ""
+    # Admin sessions are short-lived (8h) since they are highly privileged.
+    ADMIN_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+
     # AI provider (OpenAI Agents SDK reads OPENAI_API_KEY from the env)
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
@@ -107,6 +117,8 @@ class Settings(BaseSettings):
     DATAFORSEO_PASSWORD: str = ""
     AHREFS_API_TOKEN: str = ""
     SEMRUSH_API_KEY: str = ""
+    # Semrush Analytics (Backlinks) API base. Override for tests/proxies.
+    SEMRUSH_API_URL: str = "https://api.semrush.com/analytics/v1/"
 
     # Internal Link Optimizer: crawl cap and semantic-suggestion tuning.
     INTERNAL_LINK_MAX_PAGES: int = 40
@@ -154,6 +166,9 @@ class Settings(BaseSettings):
     EMAIL_PROVIDER: str = "resend"
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "RankPilot AI <noreply@rankpilot.ai>"
+    # Where "request access" / contact-form submissions are sent. Falls back
+    # to EMAIL_FROM when blank.
+    CONTACT_EMAIL: str = ""
 
     # --- Backlink Center ---
     # Free-tier backlink data (OpenLinkProfiler by default). This is

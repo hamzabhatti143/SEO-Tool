@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_project_access, get_current_user
+from app.api.deps import (
+    ensure_project_access,
+    get_current_user,
+    require_feature,
+)
 from app.db.base import get_db
 from app.models.automation import AutomationSettings
 from app.models.user import User
@@ -19,7 +23,8 @@ from app.schemas.automation import (
 )
 from app.services import automation_service
 
-router = APIRouter()
+# Automation is a Premium-only module (see app.core.feature_flags).
+router = APIRouter(dependencies=[Depends(require_feature("automation"))])
 
 
 async def _get_or_create(

@@ -12,6 +12,11 @@ const nextConfig = {
         source: "/api/backend/:path*",
         destination: `${apiUrl}/api/v1/:path*`,
       },
+      {
+        // Isolated super-admin API (separate from the user-facing /api/v1).
+        source: "/api/admin-backend/:path*",
+        destination: `${apiUrl}/api/admin/:path*`,
+      },
     ];
   },
 };

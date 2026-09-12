@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,9 +16,27 @@ from app.db.base import get_db
 from app.models.agency import ClientShareLink
 from app.models.project import Project
 from app.models.user import User
-from app.services import report_service
+from app.services import email_service, report_service
 
 router = APIRouter()
+
+
+class ContactRequest(BaseModel):
+    """A "request access" / contact-form submission (not a registration)."""
+
+    name: str = Field(..., min_length=1, max_length=200)
+    email: EmailStr
+    company: str | None = Field(default=None, max_length=200)
+    message: str = Field(..., min_length=1, max_length=5000)
+
+
+@router.post("/contact")
+async def submit_contact(payload: ContactRequest) -> dict[str, bool]:
+    """Forward an access request to the team. Never fails the caller."""
+    sent = await email_service.send_contact_email(
+        payload.name, payload.email, payload.message, payload.company
+    )
+    return {"received": True, "emailed": sent}
 
 
 @router.get("/share/{token}/report", response_class=HTMLResponse)

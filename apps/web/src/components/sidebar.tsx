@@ -2,81 +2,36 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
-import {
-  Activity,
-  FileBarChart,
-  FileText,
-  Gauge,
-  History,
-  LayoutDashboard,
-  LayoutGrid,
-  Link2,
-  LogOut,
-  Network,
-  Plug,
-  Search,
-  Settings,
-  SlidersHorizontal,
-  Swords,
-  Users,
-} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { Lock, PanelLeftClose, PanelLeftOpen, Rocket } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { tierAllows } from "@/lib/feature-flags";
+import { NAV_SECTIONS } from "@/components/nav-config";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { ProjectPicker } from "@/components/project-picker";
 import { useProject } from "@/components/project-provider";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/dashboard/connect", label: "Connect Your Site", icon: Plug },
-  { href: "/dashboard/audit", label: "Website Audit", icon: Gauge },
-  { href: "/dashboard/cwv", label: "Core Web Vitals", icon: Activity },
-  { href: "/dashboard/fix-history", label: "Fix History", icon: History },
-  {
-    href: "/dashboard/optimizer",
-    label: "On-Page Optimizer",
-    icon: SlidersHorizontal,
-  },
-  { href: "/dashboard/keywords", label: "Keyword Research", icon: Search },
-  {
-    href: "/dashboard/competitors",
-    label: "Competitor Intel",
-    icon: Swords,
-  },
-  {
-    href: "/dashboard/gaps",
-    label: "Content Gaps",
-    icon: LayoutGrid,
-  },
-  {
-    href: "/dashboard/internal-links",
-    label: "Internal Links",
-    icon: Network,
-  },
-  { href: "/dashboard/backlinks", label: "Backlink Center", icon: Link2 },
-  { href: "/dashboard/content", label: "AI Content Studio", icon: FileText },
-  { href: "/dashboard/reports", label: "Reports", icon: FileBarChart },
-  { href: "/dashboard/settings", label: "Automation", icon: Settings },
-  { href: "/dashboard/agency", label: "Agency Mode", icon: Users },
-];
-
 const TIER_LABEL: Record<string, string> = {
-  free: "Free",
-  pro: "Pro",
-  agency: "Agency",
+  standard: "Standard",
+  premium: "Premium",
 };
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed = false,
+  onToggleCollapse,
+  onNavigate,
+}: {
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { currentProject } = useProject();
-  const tier = session?.user?.tier ?? "free";
+  const tier = session?.user?.tier ?? "standard";
 
-  // White-label: Agency projects with branding replace RankPilot AI branding.
   const whiteLabel =
-    tier === "agency" && currentProject?.brand_name
+    tierAllows(tier, "white_label") && currentProject?.brand_name
       ? {
           name: currentProject.brand_name,
           logo: currentProject.brand_logo_url,
@@ -85,73 +40,115 @@ export function Sidebar() {
       : null;
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-6 border-r bg-muted/30 p-4">
-      <div className="px-2 py-2">
-        <Link href="/dashboard" className="text-xl font-bold tracking-tight">
-          {whiteLabel ? (
-            whiteLabel.logo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={whiteLabel.logo}
-                alt={whiteLabel.name}
-                className="max-h-8"
-              />
+    <div className="flex h-full flex-col bg-card">
+      {/* Brand */}
+      <div
+        className={cn(
+          "flex h-16 items-center border-b px-4",
+          collapsed && "justify-center px-0"
+        )}
+      >
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          className="flex items-center gap-2 overflow-hidden font-bold tracking-tight"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Rocket className="h-4 w-4" />
+          </span>
+          {!collapsed &&
+            (whiteLabel ? (
+              whiteLabel.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={whiteLabel.logo}
+                  alt={whiteLabel.name}
+                  className="max-h-7"
+                />
+              ) : (
+                <span style={{ color: whiteLabel.color }}>
+                  {whiteLabel.name}
+                </span>
+              )
             ) : (
-              <span style={{ color: whiteLabel.color }}>{whiteLabel.name}</span>
-            )
-          ) : (
-            <>
-              RankPilot <span className="text-primary">AI</span>
-            </>
-          )}
+              <span className="text-lg">
+                RankPilot <span className="text-primary">AI</span>
+              </span>
+            ))}
         </Link>
       </div>
 
-      <ProjectPicker />
-
-      <nav className="flex flex-col gap-1">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-          const active =
-            href === "/dashboard"
-              ? pathname === href
-              : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          );
-        })}
+      {/* Nav */}
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+        {NAV_SECTIONS.map((section, si) => (
+          <div key={section.title ?? si} className="space-y-1">
+            {section.title && !collapsed && (
+              <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {section.title}
+              </p>
+            )}
+            {section.items.map(({ href, label, icon: Icon, feature }) => {
+              const active =
+                href === "/dashboard"
+                  ? pathname === href
+                  : pathname.startsWith(href);
+              const locked = feature ? !tierAllows(tier, feature) : false;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={onNavigate}
+                  title={collapsed ? label : undefined}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    collapsed && "justify-center px-0",
+                    active
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    locked && !active && "opacity-60"
+                  )}
+                >
+                  <Icon className="h-[18px] w-[18px] shrink-0" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 truncate">{label}</span>
+                      {locked && (
+                        <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                      )}
+                    </>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      <div className="mt-auto space-y-3 border-t pt-4">
-        <div className="flex items-center justify-between px-2">
-          <span className="truncate text-sm text-muted-foreground">
-            {session?.user?.email}
-          </span>
-          <Badge variant={tier === "free" ? "secondary" : "default"}>
-            {TIER_LABEL[tier] ?? tier}
-          </Badge>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start"
-          onClick={() => signOut({ callbackUrl: "/login" })}
-        >
-          <LogOut className="mr-2 h-4 w-4" />
-          Sign out
-        </Button>
+      {/* Footer: tier + collapse toggle */}
+      <div
+        className={cn(
+          "flex items-center gap-2 border-t p-3",
+          collapsed ? "flex-col" : "justify-between"
+        )}
+      >
+        <Badge variant={tier === "standard" ? "secondary" : "default"}>
+          {collapsed ? (TIER_LABEL[tier] ?? tier).charAt(0) : TIER_LABEL[tier] ?? tier}
+        </Badge>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="hidden rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground lg:block"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </button>
+        )}
       </div>
-    </aside>
+    </div>
   );
 }

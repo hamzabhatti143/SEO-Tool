@@ -119,8 +119,126 @@ def _parse(data: object) -> list[Backlink]:
     return backlinks
 
 
+# --- Semrush Analytics (Backlinks) API ----------------------------------
+# Semrush returns CSV with a ';' separator; errors come back as a 200 body
+# beginning with "ERROR NN :: ...". Docs: analytics/v1 backlinks endpoints.
+_SEMRUSH_TARGET_TYPE = "root_domain"
+
+
+def _parse_semrush_csv(text: str) -> list[dict[str, str]]:
+    lines = text.strip().splitlines()
+    if len(lines) < 2:
+        return []
+    headers = [h.strip() for h in lines[0].split(";")]
+    return [dict(zip(headers, line.split(";"))) for line in lines[1:]]
+
+
+async def _semrush_get(
+    client: httpx.AsyncClient, **params: str
+) -> list[dict[str, str]]:
+    params["key"] = settings.SEMRUSH_API_KEY
+    resp = await client.get(settings.SEMRUSH_API_URL, params=params)
+    text = resp.text
+    if resp.status_code != 200 or text.startswith("ERROR"):
+        raise RuntimeError(text.strip()[:200] or f"HTTP {resp.status_code}")
+    return _parse_semrush_csv(text)
+
+
+def _to_int(value: str | None) -> int:
+    try:
+        return int(value) if value is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _semrush_profile(host: str) -> BacklinkProfileResponse | None:
+    """Build a profile from the Semrush Backlinks API; None on any failure."""
+    try:
+        async with httpx.AsyncClient(
+            headers={"User-Agent": _USER_AGENT}, timeout=30.0
+        ) as client:
+            overview = await _semrush_get(
+                client,
+                type="backlinks_overview",
+                target=host,
+                target_type=_SEMRUSH_TARGET_TYPE,
+                export_columns="total,domains_num,follows_num,nofollows_num",
+            )
+            rows = await _semrush_get(
+                client,
+                type="backlinks",
+                target=host,
+                target_type=_SEMRUSH_TARGET_TYPE,
+                export_columns="source_url,anchor,nofollow",
+                display_limit=str(min(settings.BACKLINK_MAX, 100)),
+            )
+    except Exception:  # noqa: BLE001 - degrade to the generic/limited path
+        return None
+
+    ov = overview[0] if overview else {}
+    total = _to_int(ov.get("total"))
+    follow = _to_int(ov.get("follows_num"))
+    nofollow = _to_int(ov.get("nofollows_num"))
+    if total == 0:
+        total = follow + nofollow
+
+    backlinks = [
+        Backlink(
+            source_url=r.get("source_url", ""),
+            source_domain=_host(r.get("source_url", "")),
+            anchor=(r.get("anchor") or "").strip(),
+            nofollow=str(r.get("nofollow", "")).strip().lower() in ("true", "1"),
+        )
+        for r in rows
+        if r.get("source_url")
+    ]
+
+    anchor_counter = Counter(b.anchor or "(empty)" for b in backlinks)
+    sampled = len(backlinks)
+    anchor_distribution = [
+        AnchorCount(
+            anchor=anchor,
+            count=count,
+            percentage=round(count / sampled * 100, 1) if sampled else 0.0,
+        )
+        for anchor, count in anchor_counter.most_common(15)
+    ]
+
+    return BacklinkProfileResponse(
+        domain=host,
+        data_source="semrush",
+        limited=False,
+        referring_domains=_to_int(ov.get("domains_num")),
+        total_backlinks=total,
+        follow_count=follow,
+        nofollow_count=nofollow,
+        nofollow_ratio=round(nofollow / total, 3) if total else 0.0,
+        anchor_distribution=anchor_distribution,
+        sample_backlinks=[
+            SampleBacklink(
+                source_url=b.source_url,
+                source_domain=b.source_domain,
+                anchor=b.anchor or "(empty)",
+                nofollow=b.nofollow,
+            )
+            for b in backlinks[:25]
+        ],
+        note=(
+            "Live data from Semrush. Headline totals are full-index; the "
+            "sample backlinks and anchor breakdown are a capped subset."
+        ),
+    )
+
+
 # --- Profile aggregation ------------------------------------------------
 async def get_profile(domain: str) -> BacklinkProfileResponse:
+    # Prefer the Semrush API when configured; fall back to the generic/free
+    # provider (or a clearly-labeled empty profile) on any failure.
+    if settings.BACKLINK_PROVIDER.lower() == "semrush" and settings.SEMRUSH_API_KEY:
+        profile = await _semrush_profile(_host(domain))
+        if profile is not None:
+            return profile
+
     backlinks, data_source = await _fetch_backlinks(domain)
     total = len(backlinks)
     referring = {b.source_domain for b in backlinks if b.source_domain}

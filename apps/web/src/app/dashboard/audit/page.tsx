@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronDown,
   FileText,
+  Gauge,
   Loader2,
   XCircle,
 } from "lucide-react";
@@ -23,6 +24,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { FadeIn } from "@/components/motion";
 import { useProject } from "@/components/project-provider";
 import {
   api,
@@ -96,38 +100,45 @@ export default function AuditPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">Website Audit</h1>
-        <p className="text-muted-foreground">
-          Crawl a page and check title &amp; meta tags, H1–H6 structure, image
-          alt text, broken internal links, and page-load basics.
-        </p>
-      </header>
+      <PageHeader
+        title="Website Audit"
+        description="Crawl a page and check title & meta tags, H1–H6 structure, image alt text, broken internal links, and page-load basics."
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Run an audit</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleRun} className="flex items-end gap-3">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="url">Page URL</Label>
-              <Input
-                id="url"
-                placeholder="https://example.com/page"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={busy}>
-              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {busy ? "Auditing…" : "Run audit"}
-            </Button>
-          </form>
-          {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-        </CardContent>
-      </Card>
+      <FadeIn delay={0.05}>
+        <Card className="shadow-soft">
+          <CardHeader>
+            <CardTitle>Run an audit</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleRun} className="flex items-end gap-3">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="url">Page URL</Label>
+                <Input
+                  id="url"
+                  placeholder="https://example.com/page"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={busy}>
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {busy ? "Auditing…" : "Run audit"}
+              </Button>
+            </form>
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      {!audit && !busy && !error && (
+        <EmptyState
+          icon={Gauge}
+          title="No audit yet"
+          description="Enter a page URL above and run an audit to see SEO score, issues, and technical-SEO checks."
+        />
+      )}
 
       {results && audit && (
         <>

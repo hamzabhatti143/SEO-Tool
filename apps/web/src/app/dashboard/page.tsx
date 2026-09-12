@@ -6,6 +6,7 @@ import {
   Download,
   FileBarChart,
   FileText,
+  FolderPlus,
   Gauge,
   LayoutGrid,
   Link2,
@@ -17,13 +18,10 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { Stagger, StaggerItem, HoverLift } from "@/components/motion";
 import { useProject } from "@/components/project-provider";
 import { api } from "@/lib/api";
 
@@ -88,7 +86,7 @@ const MODULES = [
     href: "/dashboard/reports",
     title: "Reports",
     description:
-      "Aggregate Audit, Keywords, and Content into one branded PDF report (white-label on Agency).",
+      "Aggregate Audit, Keywords, and Content into one branded PDF report (white-label on Premium).",
     icon: FileBarChart,
   },
 ];
@@ -123,46 +121,68 @@ export default function DashboardOverview() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            {loading
-              ? "Loading workspace…"
-              : error
-                ? `Error: ${error}`
-                : currentProject
-                  ? `Working on ${currentProject.name} (${currentProject.domain})`
-                  : "Create a project in the sidebar to get started."}
-          </p>
-          {reportError && (
-            <p className="mt-1 text-sm text-destructive">{reportError}</p>
-          )}
-        </div>
-        <Button onClick={generateReport} disabled={reportBusy || !currentProject}>
-          {reportBusy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Download className="mr-2 h-4 w-4" />
-          )}
-          Generate Report
-        </Button>
-      </header>
+    <div className="space-y-8">
+      <PageHeader
+        title="Dashboard"
+        description={
+          loading
+            ? "Loading workspace…"
+            : error
+              ? `Error: ${error}`
+              : currentProject
+                ? `Working on ${currentProject.name} · ${currentProject.domain}`
+                : "Select a project from the top bar, or create one to get started."
+        }
+        actions={
+          <Button
+            onClick={generateReport}
+            disabled={reportBusy || !currentProject}
+          >
+            {reportBusy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Generate Report
+          </Button>
+        }
+      />
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {MODULES.map(({ href, title, description, icon: Icon }) => (
-          <Link key={href} href={href}>
-            <Card className="h-full transition-colors hover:border-primary">
-              <CardHeader>
-                <Icon className="h-8 w-8 text-primary" />
-                <CardTitle>{title}</CardTitle>
-                <CardDescription>{description}</CardDescription>
-              </CardHeader>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      {reportError && <p className="text-sm text-destructive">{reportError}</p>}
+
+      {!loading && !error && !currentProject ? (
+        <EmptyState
+          icon={FolderPlus}
+          title="No project yet"
+          description="Create your first project to run audits, research keywords, and generate content."
+        />
+      ) : (
+        <Stagger className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {MODULES.map(({ href, title, description, icon: Icon }) => (
+            <StaggerItem key={href}>
+              <HoverLift className="h-full">
+                <Link href={href} className="block h-full">
+                  <Card className="h-full shadow-soft transition-colors hover:border-primary/50 hover:shadow-card">
+                    <CardContent className="space-y-3 p-5">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+                        <Icon className="h-5 w-5" />
+                      </span>
+                      <div className="space-y-1">
+                        <h3 className="font-semibold leading-none tracking-tight">
+                          {title}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {description}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              </HoverLift>
+            </StaggerItem>
+          ))}
+        </Stagger>
+      )}
     </div>
   );
 }

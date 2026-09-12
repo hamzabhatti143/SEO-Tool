@@ -1,24 +1,25 @@
 "use client";
 
 import * as React from "react";
+import Papa from "papaparse";
 import {
-  ChevronDown,
+  Download,
   Loader2,
   Minus,
+  Search,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DataTable, type Column } from "@/components/ui/data-table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { FadeIn } from "@/components/motion";
 import { useProject } from "@/components/project-provider";
 import {
   api,
@@ -44,13 +45,17 @@ const DIFFICULTY_VARIANT: Record<
   high: "destructive",
 };
 
+const DIFFICULTY_ORDER: Record<KeywordDifficulty, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
 const INTENT_LABEL: Record<KeywordIntent, string> = {
   informational: "Informational",
   commercial: "Commercial",
   transactional: "Transactional",
 };
-
-const QUESTIONS_LABEL = "People Also Ask";
 
 type KindFilter = KeywordKind | "all";
 type DiffFilter = KeywordDifficulty | "all";
@@ -104,63 +109,136 @@ export default function KeywordsPage() {
     [keywords, kind, difficulty, intent, search]
   );
 
-  // Group filtered keywords by cluster label; largest cluster first, with
-  // "People Also Ask" pinned last.
-  const groups = React.useMemo(() => {
-    const map = new Map<string, Keyword[]>();
-    for (const k of filtered) {
-      const label = k.cluster_label ?? "Uncategorized";
-      const bucket = map.get(label);
-      if (bucket) bucket.push(k);
-      else map.set(label, [k]);
-    }
-    return [...map.entries()].sort((a, b) => {
-      if (a[0] === QUESTIONS_LABEL) return 1;
-      if (b[0] === QUESTIONS_LABEL) return -1;
-      return b[1].length - a[1].length;
-    });
-  }, [filtered]);
+  // The table sorts internally; it reports the current sorted (filtered) rows
+  // here so the CSV export matches exactly what's on screen.
+  const sortedRows = React.useRef<Keyword[]>([]);
+  const handleSortedRows = React.useCallback((rows: Keyword[]) => {
+    sortedRows.current = rows;
+  }, []);
+
+  function exportCsv() {
+    const rows = sortedRows.current.length ? sortedRows.current : filtered;
+    const data = rows.map((k) => ({
+      Keyword: k.term,
+      Cluster: k.cluster_label ?? "",
+      Type: KIND_LABEL[k.kind],
+      "Search Volume (est.)": k.search_volume ?? "",
+      Difficulty: k.difficulty ? capitalize(k.difficulty) : "",
+      "Search Intent": k.search_intent ? INTENT_LABEL[k.search_intent] : "",
+      "Trend Score": k.trend_score ?? "",
+      "Trend Direction": k.trend_direction ?? "",
+    }));
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const slug = slugify(currentProject?.name ?? "project");
+    const date = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}-keywords-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  const columns: Column<Keyword>[] = [
+    {
+      key: "term",
+      header: "Keyword",
+      cell: (k) => <span className="font-medium">{k.term}</span>,
+      sortValue: (k) => k.term.toLowerCase(),
+    },
+    {
+      key: "cluster",
+      header: "Cluster",
+      cell: (k) => (
+        <span className="text-muted-foreground">
+          {k.cluster_label ?? "—"}
+        </span>
+      ),
+      sortValue: (k) => k.cluster_label ?? "",
+    },
+    {
+      key: "kind",
+      header: "Type",
+      cell: (k) => <Badge variant="outline">{KIND_LABEL[k.kind]}</Badge>,
+      sortValue: (k) => k.kind,
+    },
+    {
+      key: "difficulty",
+      header: "Difficulty",
+      cell: (k) =>
+        k.difficulty ? (
+          <Badge variant={DIFFICULTY_VARIANT[k.difficulty]}>
+            {capitalize(k.difficulty)}
+          </Badge>
+        ) : (
+          "—"
+        ),
+      sortValue: (k) => (k.difficulty ? DIFFICULTY_ORDER[k.difficulty] : 0),
+    },
+    {
+      key: "intent",
+      header: "Intent",
+      cell: (k) => (
+        <span className="text-muted-foreground">
+          {k.search_intent ? INTENT_LABEL[k.search_intent] : "—"}
+        </span>
+      ),
+      sortValue: (k) => k.search_intent ?? "",
+    },
+    {
+      key: "trend",
+      header: "Trend",
+      cell: (k) => <TrendCell keyword={k} />,
+      sortValue: (k) => k.trend_score ?? -1,
+      align: "right",
+    },
+  ];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">Keyword Research</h1>
-        <p className="text-muted-foreground">
-          Generate related terms, long-tail variations, and People-Also-Ask
-          questions, auto-grouped into topic clusters with a Google Trends
-          signal. Difficulty and intent are <strong>AI estimates</strong>, not
-          Google Ads / keyword-tool data; the Trend column is real Google
-          Trends interest.
-        </p>
-      </header>
+    <div className="space-y-6">
+      <PageHeader
+        title="Keyword Research"
+        description="Related terms, long-tail variations, and People-Also-Ask questions, grouped into clusters with a Google Trends signal. Difficulty and intent are AI estimates."
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Generate keywords</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleResearch} className="flex items-end gap-3">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="seed">Seed keyword</Label>
-              <Input
-                id="seed"
-                placeholder="e.g. ai seo tools"
-                value={seed}
-                onChange={(e) => setSeed(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={busy}>
-              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {busy ? "Researching…" : "Research"}
-            </Button>
-          </form>
-          {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-        </CardContent>
-      </Card>
+      <FadeIn delay={0.05}>
+        <Card className="shadow-soft">
+          <CardHeader>
+            <CardTitle>Generate keywords</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleResearch} className="flex items-end gap-3">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="seed">Seed keyword</Label>
+                <Input
+                  id="seed"
+                  placeholder="e.g. ai seo tools"
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={busy}>
+                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {busy ? "Researching…" : "Research"}
+              </Button>
+            </form>
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+          </CardContent>
+        </Card>
+      </FadeIn>
 
-      {keywords.length > 0 && (
-        <>
+      {keywords.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="No keywords yet"
+          description="Enter a seed keyword above and run research to generate a clustered keyword list."
+        />
+      ) : (
+        <FadeIn delay={0.1} className="space-y-4">
           {/* Filters */}
           <div className="flex flex-wrap items-end gap-3">
             <FilterSelect
@@ -211,103 +289,34 @@ export default function KeywordsPage() {
             <span className="pb-2 text-sm text-muted-foreground">
               {filtered.length}/{keywords.length}
             </span>
+            <Button
+              variant="outline"
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="ml-auto"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
           </div>
 
-          {/* Cluster groups */}
-          <div className="space-y-3">
-            {groups.map(([label, items], i) => (
-              <ClusterGroup
-                key={label}
-                label={label}
-                items={items}
-                defaultOpen={i < 3}
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            getRowKey={(k) => k.id}
+            pageSize={15}
+            initialSort={{ key: "difficulty", dir: "asc" }}
+            onSortedRowsChange={handleSortedRows}
+            emptyState={
+              <EmptyState
+                title="No matches"
+                description="No keywords match the current filters."
               />
-            ))}
-            {groups.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No keywords match the current filters.
-              </p>
-            )}
-          </div>
-        </>
+            }
+          />
+        </FadeIn>
       )}
     </div>
-  );
-}
-
-function ClusterGroup({
-  label,
-  items,
-  defaultOpen,
-}: {
-  label: string;
-  items: Keyword[];
-  defaultOpen: boolean;
-}) {
-  const isQuestions = label === QUESTIONS_LABEL;
-  return (
-    <details
-      open={defaultOpen}
-      className="group rounded-lg border bg-card [&_summary::-webkit-details-marker]:hidden"
-    >
-      <summary className="flex cursor-pointer items-center justify-between p-4">
-        <span className="flex items-center gap-2 font-medium">
-          {label}
-          <Badge variant={isQuestions ? "default" : "secondary"}>
-            {items.length}
-          </Badge>
-        </span>
-        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="overflow-x-auto border-t">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-left">
-            <tr>
-              <th className="p-3 font-medium">Keyword</th>
-              <th className="p-3 font-medium">Type</th>
-              <th className="p-3 font-medium">
-                Difficulty{" "}
-                <span className="font-normal text-muted-foreground">
-                  (AI est.)
-                </span>
-              </th>
-              <th className="p-3 font-medium">
-                Intent{" "}
-                <span className="font-normal text-muted-foreground">
-                  (AI est.)
-                </span>
-              </th>
-              <th className="p-3 font-medium">Trend</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((k) => (
-              <tr key={k.id} className="border-t">
-                <td className="p-3">{k.term}</td>
-                <td className="p-3">
-                  <Badge variant="outline">{KIND_LABEL[k.kind]}</Badge>
-                </td>
-                <td className="p-3">
-                  {k.difficulty ? (
-                    <Badge variant={DIFFICULTY_VARIANT[k.difficulty]}>
-                      {capitalize(k.difficulty)}
-                    </Badge>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="p-3 text-muted-foreground">
-                  {k.search_intent ? INTENT_LABEL[k.search_intent] : "—"}
-                </td>
-                <td className="p-3">
-                  <TrendCell keyword={k} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </details>
   );
 }
 
@@ -328,7 +337,7 @@ function TrendCell({ keyword }: { keyword: Keyword }) {
         ? "text-destructive"
         : "text-muted-foreground";
   return (
-    <span className={`flex items-center gap-1 ${color}`}>
+    <span className={`inline-flex items-center justify-end gap-1 ${color}`}>
       <Icon className="h-4 w-4" />
       {keyword.trend_score}
     </span>
@@ -337,6 +346,15 @@ function TrendCell({ keyword }: { keyword: Keyword }) {
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function slugify(s: string) {
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "project"
+  );
 }
 
 function FilterSelect({

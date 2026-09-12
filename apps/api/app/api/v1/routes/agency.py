@@ -1,9 +1,9 @@
 """Agency Mode routes: team members, invites, and client share links.
 
-The management router is gated to the Agency subscription tier via
-`require_agency`, and each action further requires admin/owner on the target
-project. Accepting an invite lives on a separate (non-gated) router so an
-invited teammate on any plan can join.
+The management router is gated to the Premium subscription tier via
+`require_feature("agency_mode")`, and each action further requires admin/owner
+on the target project. Accepting an invite lives on a separate (non-gated)
+router so an invited teammate on any plan can join.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import (
     ensure_project_access,
     get_current_user,
-    require_agency,
+    require_feature,
 )
 from app.db.base import get_db
 from app.models.agency import ClientShareLink, ProjectInvite, ProjectMember
@@ -34,8 +34,8 @@ from app.schemas.agency import (
     ShareLinkRead,
 )
 
-# Agency-tier-gated management router.
-router = APIRouter(dependencies=[Depends(require_agency)])
+# Premium-tier-gated management router.
+router = APIRouter(dependencies=[Depends(require_feature("agency_mode"))])
 # Invite acceptance is available to any authenticated user (invitees may be
 # on any plan), so it lives on a separate router without the agency gate.
 invite_router = APIRouter()

@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/ui/page-header";
 import { useProject } from "@/components/project-provider";
+import { tierAllows } from "@/lib/feature-flags";
 import { api } from "@/lib/api";
 
 function slugify(s: string) {
@@ -24,7 +26,7 @@ function slugify(s: string) {
 export default function ReportsPage() {
   const { currentProject } = useProject();
   const { data: session } = useSession();
-  const isAgency = session?.user?.tier === "agency";
+  const isPremium = tierAllows(session?.user?.tier, "white_label");
 
   const [error, setError] = React.useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = React.useState(false);
@@ -67,15 +69,14 @@ export default function ReportsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-        <p className="text-muted-foreground">
-          A single branded report aggregating Audit, Keyword Research, and
-          Content for {currentProject?.name ?? "your project"}.
-        </p>
-      </header>
+      <PageHeader
+        title="Reports"
+        description={`A single branded report aggregating Audit, Keyword Research, and Content for ${
+          currentProject?.name ?? "your project"
+        }.`}
+      />
 
-      <Card>
+      <Card className="shadow-soft">
         <CardHeader>
           <CardTitle>Generate report</CardTitle>
           <CardDescription>
@@ -113,12 +114,12 @@ export default function ReportsPage() {
         </CardContent>
       </Card>
 
-      <BrandingCard isAgency={isAgency} />
+      <BrandingCard isPremium={isPremium} />
     </div>
   );
 }
 
-function BrandingCard({ isAgency }: { isAgency: boolean }) {
+function BrandingCard({ isPremium }: { isPremium: boolean }) {
   const { currentProject } = useProject();
   const [brandName, setBrandName] = React.useState("");
   const [logoUrl, setLogoUrl] = React.useState("");
@@ -167,11 +168,11 @@ function BrandingCard({ isAgency }: { isAgency: boolean }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!isAgency && (
+        {!isPremium && (
           <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              White-label reports are an <strong>Agency plan</strong> feature.
+              White-label reports are a <strong>Premium plan</strong> feature.
               You can save settings now, but reports stay RankPilot-branded
               until you upgrade.
             </span>

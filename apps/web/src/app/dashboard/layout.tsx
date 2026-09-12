@@ -1,6 +1,6 @@
 import { AssistantWidget } from "@/components/assistant-widget";
+import { DashboardChrome } from "@/components/dashboard-chrome";
 import { ProjectProvider } from "@/components/project-provider";
-import { Sidebar } from "@/components/sidebar";
 
 export default function DashboardLayout({
   children,
@@ -9,10 +9,7 @@ export default function DashboardLayout({
 }) {
   return (
     <ProjectProvider>
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
-      </div>
+      <DashboardChrome>{children}</DashboardChrome>
       <AssistantWidget />
     </ProjectProvider>
   );

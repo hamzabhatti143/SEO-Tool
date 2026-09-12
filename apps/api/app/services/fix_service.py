@@ -34,6 +34,14 @@ from app.models.project import Project
 from app.services import connector_service, core_web_vitals_service
 from app.services.core_web_vitals_service import CoreWebVitalsError
 
+# Browser-like User-Agent for calls to the rankpilot/v1 plugin endpoints; some
+# hosts/WAFs/CDNs block non-browser agents. Kept in step with the one in
+# wordpress_service.py.
+_WP_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 # Maps a Lighthouse audit id (as stored in a scan's insights/diagnostics) to
 # the plugin fix type that addresses it. lazy_load has no direct audit — it's
 # added when the page has image issues, and as a safe fallback.
@@ -121,7 +129,12 @@ async def _wp_request(
             resp = await client.post(
                 endpoint,
                 json=payload,
-                headers={"Authorization": f"Bearer {key}"},
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    # Browser-like UA so hosts/WAFs/CDNs don't block the call.
+                    "User-Agent": _WP_USER_AGENT,
+                    "Accept": "application/json",
+                },
             )
     except httpx.HTTPError as exc:
         raise FixError(f"Could not reach the WordPress plugin: {exc}") from exc

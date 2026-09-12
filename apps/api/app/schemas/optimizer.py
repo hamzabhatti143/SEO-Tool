@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Severity = Literal["critical", "warning", "info"]
+# The first keyword in the list is the primary (weighted more heavily); the
+# rest are secondary.
+KeywordRole = Literal["primary", "secondary"]
 
 # Categories double as the section ids in the UI.
 Category = Literal[
@@ -24,7 +28,30 @@ Category = Literal[
 
 class OptimizeRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
-    target_keyword: str = Field(..., min_length=1, max_length=255)
+    # One or more target keywords; the first is treated as primary. Replaces
+    # the old single ``target_keyword`` string.
+    keywords: list[str] = Field(..., min_length=1, max_length=10)
+    # Optional: when set, the run is recorded against this project.
+    project_id: uuid.UUID | None = None
+
+    @field_validator("keywords")
+    @classmethod
+    def _normalize_keywords(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            kw = raw.strip()
+            if not kw:
+                continue
+            if len(kw) > 255:
+                kw = kw[:255]
+            key = kw.lower()
+            if key not in seen:
+                seen.add(key)
+                cleaned.append(kw)
+        if not cleaned:
+            raise ValueError("Provide at least one non-empty keyword.")
+        return cleaned
 
 
 class MetaTitleCheck(BaseModel):
@@ -129,10 +156,23 @@ class Suggestion(BaseModel):
     recommendation: str
 
 
-class OptimizeResponse(BaseModel):
-    url: str
-    target_keyword: str
+class KeywordAnalysis(BaseModel):
+    """The full set of checks + suggestions for a single target keyword."""
+
+    keyword: str
+    role: KeywordRole
+    # This keyword's own 0–100 score.
     score: float
     checks: OnPageChecks
     ai_suggestions: AiKeywordSuggestions
     suggestions: list[Suggestion]
+
+
+class OptimizeResponse(BaseModel):
+    url: str
+    # All target keywords analyzed; ``keywords[0]`` is the primary.
+    keywords: list[str]
+    primary_keyword: str
+    # Combined score across all keywords (primary weighted more heavily).
+    score: float
+    per_keyword: list[KeywordAnalysis]

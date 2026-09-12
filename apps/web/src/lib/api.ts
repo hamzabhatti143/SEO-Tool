@@ -23,7 +23,17 @@ export interface User {
   email: string;
   full_name: string | null;
   plan: string;
+  status: string;
+  must_change_password: boolean;
   created_at: string;
+}
+
+// --- Contact / request access ---
+export interface ContactRequest {
+  name: string;
+  email: string;
+  company?: string | null;
+  message: string;
 }
 
 export type Platform = "wordpress" | "shopify" | "custom";
@@ -462,17 +472,30 @@ export interface OptimizerSuggestion {
   recommendation: string;
 }
 
-export interface OptimizeResponse {
-  url: string;
-  target_keyword: string;
+export type OptimizerRole = "primary" | "secondary";
+
+export interface AiKeywordSuggestions {
+  lsi_keywords: string[];
+  missing_keywords: string[];
+  notes: string;
+}
+
+export interface KeywordAnalysis {
+  keyword: string;
+  role: OptimizerRole;
   score: number;
   checks: OnPageChecks;
-  ai_suggestions: {
-    lsi_keywords: string[];
-    missing_keywords: string[];
-    notes: string;
-  };
+  ai_suggestions: AiKeywordSuggestions;
   suggestions: OptimizerSuggestion[];
+}
+
+export interface OptimizeResponse {
+  url: string;
+  keywords: string[];
+  primary_keyword: string;
+  // Combined score across all keywords (primary weighted more heavily).
+  score: number;
+  per_keyword: KeywordAnalysis[];
 }
 
 // --- Competitor Intelligence ---
@@ -807,17 +830,23 @@ async function authBlob(path: string): Promise<Blob> {
 
 export const api = {
   // Auth
-  register: (data: {
-    email: string;
-    password: string;
-    full_name?: string | null;
+  me: () => request<User>("/auth/me"),
+  changePassword: (data: {
+    new_password: string;
+    current_password?: string;
   }) =>
-    request<{ access_token: string; user: User }>("/auth/register", {
+    request<User>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Contact / request access (public, no auth)
+  submitContact: (data: ContactRequest) =>
+    request<{ received: boolean; emailed: boolean }>("/public/contact", {
       method: "POST",
       body: JSON.stringify(data),
       auth: false,
     }),
-  me: () => request<User>("/auth/me"),
 
   // Projects
   listProjects: () => request<Project[]>("/projects"),
@@ -927,8 +956,12 @@ export const api = {
   listContent: (projectId: string) =>
     request<Content[]>(`/content?project_id=${projectId}`),
 
-  // On-Page SEO Optimizer
-  analyzeOnPage: (data: { url: string; target_keyword: string }) =>
+  // On-Page SEO Optimizer (multiple target keywords; first is primary)
+  analyzeOnPage: (data: {
+    url: string;
+    keywords: string[];
+    project_id?: string;
+  }) =>
     request<OptimizeResponse>("/optimizer/analyze", {
       method: "POST",
       body: JSON.stringify(data),

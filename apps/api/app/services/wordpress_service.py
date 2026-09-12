@@ -20,7 +20,13 @@ import httpx
 
 from app.core.config import settings
 
-_USER_AGENT = "RankPilotBot/0.1 (+https://rankpilot.ai/bot)"
+# Some hosts / WAFs / CDNs block requests with non-browser User-Agents, which
+# would make the plugin's REST routes look unreachable. Present a common
+# desktop-Chrome UA so the rankpilot/v1 endpoints respond normally.
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 @dataclass

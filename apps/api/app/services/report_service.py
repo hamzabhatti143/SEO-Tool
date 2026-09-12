@@ -2,7 +2,7 @@
 
 Aggregates Audit + Keyword Research + Content data for a project into a
 single branded report, rendered as HTML (Jinja2) and optionally PDF
-(WeasyPrint). Agency-plan users get white-label branding (their logo/name/
+(WeasyPrint). Premium users get white-label branding (their logo/name/
 color from project settings) instead of RankPilot AI branding.
 
 NOTE: PDF output uses WeasyPrint, which needs native libraries (Pango,
@@ -21,6 +21,7 @@ from jinja2 import Template
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import feature_flags
 from app.models.audit import AuditReport
 from app.models.content import Content
 from app.models.keyword import Keyword
@@ -37,8 +38,11 @@ class Branding:
 
 
 def _resolve_branding(project: Project, user: User) -> Branding:
-    """Agency users with configured branding get white-label; else RankPilot."""
-    if user.plan == "agency" and project.brand_name:
+    """Premium users with configured branding get white-label; else RankPilot."""
+    if (
+        feature_flags.tier_allows(user.plan, "white_label")
+        and project.brand_name
+    ):
         return Branding(
             name=project.brand_name,
             logo_url=project.brand_logo_url,

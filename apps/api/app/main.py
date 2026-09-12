@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.admin.routes import router as admin_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.eventloop import use_selector_event_loop_on_windows
@@ -53,6 +54,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
+# Isolated super-admin API (separate auth: env credentials + admin-scoped JWT).
+app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/health", tags=["meta"])

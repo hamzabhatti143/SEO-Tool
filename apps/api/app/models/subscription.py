@@ -1,8 +1,8 @@
 """Subscription model — billing tier and lifecycle for a user.
 
-Tiers: free | pro | agency. This table is the authoritative record for
-billing state; ``User.plan`` mirrors the active tier for fast reads and
-authorization checks.
+Tiers: standard | premium (invite-only signup; an admin assigns the plan).
+This table is the authoritative record for billing state; ``User.plan``
+mirrors the active tier for fast reads and authorization checks.
 """
 
 from __future__ import annotations
@@ -31,8 +31,10 @@ class Subscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         index=True,
         nullable=False,
     )
-    # free | pro | agency
-    tier: Mapped[str] = mapped_column(String(20), default="free", nullable=False)
+    # standard | premium
+    tier: Mapped[str] = mapped_column(
+        String(20), default="standard", nullable=False
+    )
     # active | trialing | past_due | canceled
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False

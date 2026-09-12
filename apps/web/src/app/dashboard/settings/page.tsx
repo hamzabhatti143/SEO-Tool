@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import { Loader2, Play, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useProject } from "@/components/project-provider";
+import { UpgradeRequired } from "@/components/upgrade-required";
+import { tierAllows } from "@/lib/feature-flags";
 import { api, type AutomationSettings } from "@/lib/api";
 
 function Toggle({
@@ -52,6 +55,21 @@ function Toggle({
 }
 
 export default function SettingsPage() {
+  const { data: session } = useSession();
+  // Gate before mounting the inner page so its data-fetching effect doesn't
+  // hit the (403) Automation endpoint for standard-tier users.
+  if (!tierAllows(session?.user?.tier, "automation")) {
+    return (
+      <UpgradeRequired
+        feature="Automation"
+        description="Scheduled audits, monitoring, and email alerts are available on the Premium plan."
+      />
+    );
+  }
+  return <AutomationSettingsPage />;
+}
+
+function AutomationSettingsPage() {
   const { currentProject } = useProject();
   const [s, setS] = React.useState<AutomationSettings | null>(null);
   const [competitorText, setCompetitorText] = React.useState("");

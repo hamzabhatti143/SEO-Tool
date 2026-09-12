@@ -55,17 +55,28 @@ export const authOptions: NextAuthOptions = {
           name: data.user.full_name ?? data.user.email,
           tier: data.user.plan,
           accessToken: data.access_token,
+          mustChangePassword: Boolean(data.user.must_change_password),
         };
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
-      // On sign-in, persist the FastAPI token and tier onto the NextAuth JWT.
+    async jwt({ token, user, trigger, session }) {
+      // On sign-in, persist the FastAPI token and flags onto the NextAuth JWT.
       if (user) {
         token.id = user.id;
         token.accessToken = (user as { accessToken?: string }).accessToken;
         token.tier = (user as { tier?: string }).tier;
+        token.mustChangePassword = (
+          user as { mustChangePassword?: boolean }
+        ).mustChangePassword;
+      }
+      // After a forced first-login password change, the client calls
+      // `update({ mustChangePassword: false })` to clear the flag in-session.
+      if (trigger === "update" && session) {
+        if (typeof session.mustChangePassword === "boolean") {
+          token.mustChangePassword = session.mustChangePassword;
+        }
       }
       return token;
     },
@@ -74,6 +85,9 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.tier = token.tier as string | undefined;
+        session.user.mustChangePassword = token.mustChangePassword as
+          | boolean
+          | undefined;
       }
       return session;
     },

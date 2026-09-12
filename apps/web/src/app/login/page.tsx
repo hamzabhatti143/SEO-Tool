@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Loader2 } from "lucide-react";
@@ -15,9 +16,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api";
-
-type Mode = "login" | "register";
+import { LoginCanvas } from "@/components/three/scenes";
 
 export default function LoginPage() {
   return (
@@ -31,10 +30,8 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const callbackUrl = params.get("callbackUrl") || "/dashboard";
-  const [mode, setMode] = React.useState<Mode>("login");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [fullName, setFullName] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -43,10 +40,6 @@ function LoginForm() {
     setBusy(true);
     setError(null);
     try {
-      if (mode === "register") {
-        // Create the account in FastAPI, then sign in for a session.
-        await api.register({ email, password, full_name: fullName || null });
-      }
       const result = await signIn("credentials", {
         email,
         password,
@@ -56,6 +49,8 @@ function LoginForm() {
         setError("Invalid email or password.");
         return;
       }
+      // Accounts created by an admin must set their own password first; the
+      // middleware redirects /dashboard → /set-password when required.
       router.push(callbackUrl);
       router.refresh();
     } catch (e) {
@@ -66,31 +61,19 @@ function LoginForm() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-sm">
+    <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 p-4">
+      {/* Lightweight 3D backdrop; degrades to the gradient above. */}
+      <LoginCanvas />
+      <div className="pointer-events-none absolute inset-0 bg-slate-950/20" />
+      <Card className="relative z-10 w-full max-w-sm shadow-popover">
         <CardHeader>
           <CardTitle>
             RankPilot <span className="text-primary">AI</span>
           </CardTitle>
-          <CardDescription>
-            {mode === "login"
-              ? "Sign in to your workspace."
-              : "Create your account — starts on the Free plan."}
-          </CardDescription>
+          <CardDescription>Sign in to your workspace.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === "register" && (
-              <div className="space-y-2">
-                <Label htmlFor="name">Full name</Label>
-                <Input
-                  id="name"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Jane Doe"
-                />
-              </div>
-            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -108,47 +91,24 @@ function LoginForm() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
                 required
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy}>
               {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {mode === "login" ? "Sign in" : "Create account"}
+              Sign in
             </Button>
           </form>
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            {mode === "login" ? (
-              <>
-                No account?{" "}
-                <button
-                  type="button"
-                  className="font-medium text-primary hover:underline"
-                  onClick={() => {
-                    setMode("register");
-                    setError(null);
-                  }}
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button
-                  type="button"
-                  className="font-medium text-primary hover:underline"
-                  onClick={() => {
-                    setMode("login");
-                    setError(null);
-                  }}
-                >
-                  Sign in
-                </button>
-              </>
-            )}
+            Need an account?{" "}
+            <Link
+              href="/contact"
+              className="font-medium text-primary hover:underline"
+            >
+              Request access
+            </Link>
           </p>
         </CardContent>
       </Card>

@@ -251,11 +251,44 @@ Browser ──Authorization: Bearer <JWT>──▶ FastAPI
    └─▶ get_current_user validates with SECRET_KEY, loads the User
 ```
 
-- **`POST /api/v1/auth/register`** — creates a user + a Free
-  `Subscription`, returns a JWT (auto sign-in).
+Signup is **invite-only**: there is no public registration. Accounts are
+created by the super admin, who gets a generated temporary password to share
+(or email) to the new user. Admin-created users are flagged
+`must_change_password` and must set their own password on first login. A
+`status` (active | suspended) blocks login for suspended accounts.
+
 - **`POST /api/v1/auth/login`** — OAuth2 password form (`username` = email),
-  returns a JWT + the user.
+  returns a JWT + the user (403 if the account is suspended).
 - **`GET /api/v1/auth/me`** — returns the authenticated user.
+- **`POST /api/v1/auth/change-password`** — sets a new password and clears
+  `must_change_password` (forced first-login change needs no current password;
+  a voluntary change requires it).
+- **`POST /api/v1/public/contact`** — public "request access" / contact form.
+
+### Super admin (isolated system)
+
+The super admin is **completely separate from regular user auth**: it does not
+live in the Users table. It authenticates against env credentials and receives
+a JWT carrying a distinct `admin` scope, validated by `require_super_admin`.
+Set these in `apps/api/.env` (never hardcode):
+
+```bash
+SUPER_ADMIN_USERNAME=admin
+SUPER_ADMIN_PASSWORD=<a strong secret>
+```
+
+Admin API (mounted at `/api/admin`, outside `/api/v1`):
+
+- **`POST /api/admin/login`** — checks env credentials; issues an admin JWT.
+- **`GET /api/admin/accounts`** — list accounts (tier, status, created, project count).
+- **`POST /api/admin/accounts`** — create an account (triggers the invite flow).
+- **`PATCH /api/admin/accounts/{id}`** — edit details / change tier (standard ⇄ premium).
+- **`PATCH /api/admin/accounts/{id}/status`** — suspend / reactivate.
+- **`DELETE /api/admin/accounts/{id}`** — delete the account (cascades to their data).
+- **`GET /api/admin/stats`** — dashboard totals.
+
+The admin dashboard UI lives in a separate Next.js route group at `/admin/*`
+(its own layout, no shared user nav): `/admin/login` and `/admin/accounts`.
 
 Two independent secrets: FastAPI's `SECRET_KEY` signs/validates the API
 JWT (backend only); NextAuth's `NEXTAUTH_SECRET` signs its own session

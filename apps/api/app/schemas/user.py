@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-Tier = Literal["free", "pro", "agency"]
+Tier = Literal["standard", "premium"]
 SubscriptionStatus = Literal["active", "trialing", "past_due", "canceled"]
 
 
@@ -34,6 +34,9 @@ class UserRead(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str | None = None
-    # Active tier, mirrored from the subscription: free | pro | agency
+    # Active tier, mirrored from the subscription: standard | premium
     plan: str
+    status: str = "active"
+    # Whether the user must set a new password before using the app.
+    must_change_password: bool = False
     created_at: datetime

@@ -51,3 +51,47 @@ async def send_email(to: str, subject: str, html: str) -> bool:
     except httpx.HTTPError as exc:
         logger.warning("Email send error: %s", exc)
         return False
+
+
+async def send_new_account_email(
+    to: str, temporary_password: str, full_name: str | None = None
+) -> bool:
+    """Email an admin-created user their temporary password + first steps."""
+    login_url = f"{settings.FRONTEND_URL.rstrip('/')}/login"
+    greeting = f"Hi {full_name}," if full_name else "Hi,"
+    html = f"""
+    <div style="font-family:system-ui,Arial,sans-serif;line-height:1.5">
+      <h2>Welcome to RankPilot AI</h2>
+      <p>{greeting}</p>
+      <p>An account has been created for you. Sign in with the temporary
+         password below — you'll be asked to set your own password on first
+         login.</p>
+      <p style="font-size:16px">
+        <strong>Email:</strong> {to}<br/>
+        <strong>Temporary password:</strong>
+        <code style="font-size:18px;letter-spacing:1px">{temporary_password}</code>
+      </p>
+      <p><a href="{login_url}">Sign in to RankPilot AI</a></p>
+      <p style="color:#666;font-size:13px">If you weren't expecting this email,
+         you can safely ignore it.</p>
+    </div>
+    """
+    return await send_email(to, "Your RankPilot AI account", html)
+
+
+async def send_contact_email(
+    name: str, email: str, message: str, company: str | None = None
+) -> bool:
+    """Forward a "request access" / contact-form submission to the team."""
+    to = settings.CONTACT_EMAIL or settings.EMAIL_FROM
+    company_line = f"<strong>Company:</strong> {company}<br/>" if company else ""
+    html = f"""
+    <div style="font-family:system-ui,Arial,sans-serif;line-height:1.5">
+      <h2>New access request</h2>
+      <p><strong>Name:</strong> {name}<br/>
+         <strong>Email:</strong> {email}<br/>
+         {company_line}</p>
+      <p style="white-space:pre-wrap">{message}</p>
+    </div>
+    """
+    return await send_email(to, f"Access request from {name}", html)

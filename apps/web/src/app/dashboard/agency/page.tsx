@@ -16,6 +16,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useProject } from "@/components/project-provider";
+import { UpgradeRequired } from "@/components/upgrade-required";
+import { tierAllows } from "@/lib/feature-flags";
 import {
   api,
   type AgencyRole,
@@ -29,27 +31,13 @@ const ROLES: AgencyRole[] = ["admin", "editor", "viewer"];
 export default function AgencyPage() {
   const { currentProject } = useProject();
   const { data: session } = useSession();
-  const isAgency = session?.user?.tier === "agency";
 
-  if (!isAgency) {
+  if (!tierAllows(session?.user?.tier, "agency_mode")) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card>
-          <CardHeader>
-            <CardTitle>Agency Mode</CardTitle>
-            <CardDescription>
-              Team members, client share links, and white-label branding are
-              available on the <strong>Agency</strong> plan.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Upgrade to Agency to invite teammates with roles, share read-only
-              report links with clients, and apply your own branding.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <UpgradeRequired
+        feature="Agency Mode"
+        description="Team members with roles, client share links, and white-label branding are available on the Premium plan."
+      />
     );
   }
 

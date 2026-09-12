@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import feature_flags
 from app.core.security import JWTError, decode_access_token
 from app.db.base import get_db
 from app.models.agency import ROLE_ORDER, ProjectMember
@@ -100,11 +103,30 @@ async def ensure_project_owner(
     )
 
 
-async def require_agency(current_user: User = Depends(get_current_user)) -> User:
-    """Gate Agency-Mode endpoints to the Agency subscription tier."""
-    if current_user.plan != "agency":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Agency Mode requires the Agency subscription plan.",
+def require_feature(
+    feature: str,
+) -> Callable[[User], Coroutine[Any, Any, User]]:
+    """Build a dependency that gates an endpoint to a feature's tier.
+
+    Returns the current user when their subscription tier includes ``feature``;
+    otherwise raises 403 with a clear "Upgrade to Premium" message. Apply it
+    per-handler or at the router level, e.g.::
+
+        router = APIRouter(
+            dependencies=[Depends(require_feature("backlink_center"))]
         )
-    return current_user
+    """
+
+    async def _dependency(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if not feature_flags.tier_allows(current_user.plan, feature):
+            label = feature_flags.feature_label(feature)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{label} is a Premium feature. Upgrade to Premium "
+                "to unlock it.",
+            )
+        return current_user
+
+    return _dependency
