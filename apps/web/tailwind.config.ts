@@ -84,9 +84,24 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(4px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        "gradient-x": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
+        glow: {
+          "0%, 100%": { opacity: "0.35" },
+          "50%": { opacity: "0.7" },
+        },
+        float: {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-6px)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.3s ease-out both",
+        "gradient-x": "gradient-x 6s ease infinite",
+        glow: "glow 4s ease-in-out infinite",
+        float: "float 5s ease-in-out infinite",
       },
     },
   },

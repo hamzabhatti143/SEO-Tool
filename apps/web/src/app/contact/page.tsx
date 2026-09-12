@@ -15,11 +15,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+
+// Formspree form endpoint — set NEXT_PUBLIC_FORMSPREE_ENDPOINT to your own
+// form's URL (https://formspree.io/f/XXXXXXXX). Submissions are emailed to the
+// address on that Formspree form.
+const FORMSPREE_ENDPOINT =
+  process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT ||
+  "https://formspree.io/f/mnnlaleb";
 
 export default function ContactPage() {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
   const [company, setCompany] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -31,15 +38,37 @@ export default function ContactPage() {
     setBusy(true);
     setError(null);
     try {
-      await api.submitContact({
-        name,
-        email,
-        company: company || null,
-        message,
+      const res = await fetch(FORMSPREE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          phone: phone || "—",
+          company: company || "—",
+          message,
+          _subject: `RankPilot access request from ${name}`,
+        }),
       });
-      setSent(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      if (res.ok) {
+        setSent(true);
+        setName("");
+        setEmail("");
+        setPhone("");
+        setCompany("");
+        setMessage("");
+      } else {
+        const data = await res.json().catch(() => null);
+        setError(
+          data?.errors?.[0]?.message ??
+            "Couldn't send your request. Please try again."
+        );
+      }
+    } catch {
+      setError("Network error — please try again.");
     } finally {
       setBusy(false);
     }
@@ -85,6 +114,16 @@ export default function ContactPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone number (optional)</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+1 (555) 000-0000"
                 />
               </div>
               <div className="space-y-2">
