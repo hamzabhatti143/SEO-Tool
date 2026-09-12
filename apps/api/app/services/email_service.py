@@ -1,12 +1,14 @@
 """Email notifications.
 
-Two providers, selected by ``settings.EMAIL_PROVIDER``:
+Providers, selected by ``settings.EMAIL_PROVIDER``:
 
+  * ``gmail``    — send via the Gmail API using a Google OAuth client
+    (client id/secret + refresh token). True per-recipient delivery with rich
+    HTML, sent from ``GMAIL_SENDER``.
   * ``formspree`` — POST to the configured Formspree form endpoint. Formspree
-    delivers the message to the address set up on that form (form-to-email), so
-    it is NOT per-recipient: the intended ``to`` is passed as the reply-to and
-    included in the body, but the notification lands in the form's inbox.
-  * ``resend`` — the Resend transactional API (true per-recipient delivery).
+    delivers to the address set up on that form (form-to-email), so it is NOT
+    per-recipient.
+  * ``resend``   — the Resend transactional API (per-recipient delivery).
 
 Best-effort: if nothing is configured, emails are logged and skipped rather
 than failing the calling job.
@@ -14,7 +16,9 @@ than failing the calling job.
 
 from __future__ import annotations
 
+import base64
 import logging
+from email.mime.text import MIMEText
 
 import httpx
 
@@ -23,9 +27,26 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _RESEND_ENDPOINT = "https://api.resend.com/emails"
+_GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+_GMAIL_SEND_ENDPOINT = (
+    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+)
+
+
+def _gmail_ready() -> bool:
+    return all(
+        (
+            settings.GMAIL_CLIENT_ID,
+            settings.GMAIL_CLIENT_SECRET,
+            settings.GMAIL_REFRESH_TOKEN,
+            settings.GMAIL_SENDER,
+        )
+    )
 
 
 def is_configured() -> bool:
+    if settings.EMAIL_PROVIDER == "gmail":
+        return _gmail_ready()
     if settings.EMAIL_PROVIDER == "formspree":
         return bool(settings.FORMSPREE_ENDPOINT)
     if settings.EMAIL_PROVIDER == "resend":
@@ -37,12 +58,59 @@ async def send_email(to: str, subject: str, html: str) -> bool:
     """Send an email. Returns True on success, False if skipped/failed."""
     if not to:
         return False
+    if settings.EMAIL_PROVIDER == "gmail" and _gmail_ready():
+        return await _send_via_gmail(to, subject, html)
     if settings.EMAIL_PROVIDER == "formspree" and settings.FORMSPREE_ENDPOINT:
         return await _send_via_formspree(to, subject, html)
     if settings.EMAIL_PROVIDER == "resend" and settings.RESEND_API_KEY:
         return await _send_via_resend(to, subject, html)
     logger.info("Email skipped (provider not configured): %s", subject)
     return False
+
+
+async def _gmail_access_token(client: httpx.AsyncClient) -> str | None:
+    """Exchange the stored refresh token for a short-lived access token."""
+    resp = await client.post(
+        _GOOGLE_TOKEN_ENDPOINT,
+        data={
+            "client_id": settings.GMAIL_CLIENT_ID,
+            "client_secret": settings.GMAIL_CLIENT_SECRET,
+            "refresh_token": settings.GMAIL_REFRESH_TOKEN,
+            "grant_type": "refresh_token",
+        },
+    )
+    if resp.status_code >= 400:
+        logger.warning("Gmail token refresh failed (%s)", resp.status_code)
+        return None
+    return resp.json().get("access_token")
+
+
+async def _send_via_gmail(to: str, subject: str, html: str) -> bool:
+    """Send an HTML email via the Gmail API (OAuth client credentials)."""
+    message = MIMEText(html, "html", "utf-8")
+    message["To"] = to
+    message["From"] = settings.EMAIL_FROM or settings.GMAIL_SENDER
+    message["Subject"] = subject
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            token = await _gmail_access_token(client)
+            if not token:
+                return False
+            resp = await client.post(
+                _GMAIL_SEND_ENDPOINT,
+                headers={"Authorization": f"Bearer {token}"},
+                json={"raw": raw},
+            )
+        if resp.status_code >= 400:
+            logger.warning(
+                "Gmail send failed (%s): %s", resp.status_code, subject
+            )
+            return False
+        return True
+    except httpx.HTTPError as exc:
+        logger.warning("Gmail send error: %s", exc)
+        return False
 
 
 async def _send_via_formspree(to: str, subject: str, html: str) -> bool:

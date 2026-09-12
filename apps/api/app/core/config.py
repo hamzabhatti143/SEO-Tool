@@ -171,13 +171,22 @@ class Settings(BaseSettings):
     AUTOMATION_WEEKLY_DAY: str = "mon"  # mon|tue|...|sun
     AUTOMATION_WEEKLY_HOUR: int = 7
     RANK_DROP_THRESHOLD: int = 5  # notify when position worsens by more than this
-    # Email provider: "formspree" | "resend" | "none".
-    #   formspree — POST to FORMSPREE_ENDPOINT; Formspree emails the address
-    #     configured on that form (form-to-email; not per-recipient).
+    # Email provider: "gmail" | "formspree" | "resend" | "none".
+    #   gmail     — send via the Gmail API using a Google OAuth client
+    #               (per-recipient, rich HTML). Set the GMAIL_* values below.
+    #   formspree — POST to FORMSPREE_ENDPOINT; delivered to that form's inbox
+    #               (form-to-email; not per-recipient).
     #   resend    — transactional API (per-recipient); needs RESEND_API_KEY.
-    EMAIL_PROVIDER: str = "formspree"
-    # Formspree form endpoint (https://formspree.io/f/XXXX). Submissions +
-    # automated notifications are delivered to that form's configured inbox.
+    EMAIL_PROVIDER: str = "gmail"
+    # --- Gmail (Google OAuth client) ---
+    # Create an OAuth 2.0 client in Google Cloud, grant the Gmail send scope
+    # (https://www.googleapis.com/auth/gmail.send), and obtain a refresh token.
+    GMAIL_CLIENT_ID: str = ""
+    GMAIL_CLIENT_SECRET: str = ""
+    GMAIL_REFRESH_TOKEN: str = ""
+    # The Gmail address emails are sent from (e.g. you@gmail.com).
+    GMAIL_SENDER: str = ""
+    # Formspree form endpoint (used by the contact form + as an email fallback).
     FORMSPREE_ENDPOINT: str = "https://formspree.io/f/xoeqzoby"
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "RankPilot AI <noreply@rankpilot.ai>"
