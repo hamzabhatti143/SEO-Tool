@@ -5,7 +5,7 @@ The super admin is now an isolated, env-credentialed system (see
 is removed. ``users.status`` (active | suspended) is added so the super admin
 can suspend/reactivate accounts; suspended accounts are blocked at login.
 
-Revision ID: 0015_account_status_admin_isolation
+Revision ID: 0015_account_status
 Revises: 0014_two_tier_subscription
 Create Date: 2026-09-11
 
@@ -15,8 +15,9 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-# revision identifiers, used by Alembic.
-revision: str = "0015_account_status_admin_isolation"
+# revision identifiers, used by Alembic. NOTE: keep <=32 chars — Alembic's
+# alembic_version.version_num column is VARCHAR(32).
+revision: str = "0015_account_status"
 down_revision: Union[str, None] = "0014_two_tier_subscription"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
