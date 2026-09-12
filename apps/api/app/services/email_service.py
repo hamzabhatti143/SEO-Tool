@@ -1,8 +1,15 @@
-"""Email notifications via Resend (https://resend.com).
+"""Email notifications.
 
-Uses the Resend REST API over httpx (no SDK dependency). Best-effort: if no
-API key is configured, emails are logged and skipped rather than failing the
-calling automation job.
+Two providers, selected by ``settings.EMAIL_PROVIDER``:
+
+  * ``formspree`` — POST to the configured Formspree form endpoint. Formspree
+    delivers the message to the address set up on that form (form-to-email), so
+    it is NOT per-recipient: the intended ``to`` is passed as the reply-to and
+    included in the body, but the notification lands in the form's inbox.
+  * ``resend`` — the Resend transactional API (true per-recipient delivery).
+
+Best-effort: if nothing is configured, emails are logged and skipped rather
+than failing the calling job.
 """
 
 from __future__ import annotations
@@ -15,24 +22,63 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_ENDPOINT = "https://api.resend.com/emails"
+_RESEND_ENDPOINT = "https://api.resend.com/emails"
 
 
 def is_configured() -> bool:
-    return settings.EMAIL_PROVIDER == "resend" and bool(settings.RESEND_API_KEY)
+    if settings.EMAIL_PROVIDER == "formspree":
+        return bool(settings.FORMSPREE_ENDPOINT)
+    if settings.EMAIL_PROVIDER == "resend":
+        return bool(settings.RESEND_API_KEY)
+    return False
 
 
 async def send_email(to: str, subject: str, html: str) -> bool:
     """Send an email. Returns True on success, False if skipped/failed."""
     if not to:
         return False
-    if not is_configured():
-        logger.info("Email skipped (provider not configured): %s", subject)
-        return False
+    if settings.EMAIL_PROVIDER == "formspree" and settings.FORMSPREE_ENDPOINT:
+        return await _send_via_formspree(to, subject, html)
+    if settings.EMAIL_PROVIDER == "resend" and settings.RESEND_API_KEY:
+        return await _send_via_resend(to, subject, html)
+    logger.info("Email skipped (provider not configured): %s", subject)
+    return False
+
+
+async def _send_via_formspree(to: str, subject: str, html: str) -> bool:
+    """POST the message to the Formspree form; it emails the form's inbox."""
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(
-                _ENDPOINT,
+                settings.FORMSPREE_ENDPOINT,
+                headers={"Accept": "application/json"},
+                json={
+                    # `email`/`_replyto` set the reply-to; Formspree still
+                    # delivers to the form's configured address.
+                    "email": to,
+                    "_replyto": to,
+                    "_subject": subject,
+                    "subject": subject,
+                    "intended_recipient": to,
+                    "message": html,
+                },
+            )
+        if resp.status_code >= 400:
+            logger.warning(
+                "Formspree send failed (%s): %s", resp.status_code, subject
+            )
+            return False
+        return True
+    except httpx.HTTPError as exc:
+        logger.warning("Formspree send error: %s", exc)
+        return False
+
+
+async def _send_via_resend(to: str, subject: str, html: str) -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                _RESEND_ENDPOINT,
                 headers={
                     "Authorization": f"Bearer {settings.RESEND_API_KEY}",
                     "Content-Type": "application/json",

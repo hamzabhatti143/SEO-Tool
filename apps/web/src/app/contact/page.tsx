@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 // address on that Formspree form.
 const FORMSPREE_ENDPOINT =
   process.env.NEXT_PUBLIC_FORMSPREE_ENDPOINT ||
-  "https://formspree.io/f/mnnlaleb";
+  "https://formspree.io/f/xoeqzoby";
 
 export default function ContactPage() {
   const [name, setName] = React.useState("");

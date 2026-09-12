@@ -171,9 +171,14 @@ class Settings(BaseSettings):
     AUTOMATION_WEEKLY_DAY: str = "mon"  # mon|tue|...|sun
     AUTOMATION_WEEKLY_HOUR: int = 7
     RANK_DROP_THRESHOLD: int = 5  # notify when position worsens by more than this
-    # Email via Resend (https://resend.com). Set EMAIL_PROVIDER="none" to
-    # disable. Leave RESEND_API_KEY blank and emails are logged/skipped.
-    EMAIL_PROVIDER: str = "resend"
+    # Email provider: "formspree" | "resend" | "none".
+    #   formspree — POST to FORMSPREE_ENDPOINT; Formspree emails the address
+    #     configured on that form (form-to-email; not per-recipient).
+    #   resend    — transactional API (per-recipient); needs RESEND_API_KEY.
+    EMAIL_PROVIDER: str = "formspree"
+    # Formspree form endpoint (https://formspree.io/f/XXXX). Submissions +
+    # automated notifications are delivered to that form's configured inbox.
+    FORMSPREE_ENDPOINT: str = "https://formspree.io/f/xoeqzoby"
     RESEND_API_KEY: str = ""
     EMAIL_FROM: str = "RankPilot AI <noreply@rankpilot.ai>"
     # Where "request access" / contact-form submissions are sent. Falls back
