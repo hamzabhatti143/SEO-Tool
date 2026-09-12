@@ -76,6 +76,23 @@ class RankPilot_Connector {
 			3
 		);
 
+		// Technical-SEO fixes applied at runtime (managed, revertible):
+		// canonical override, source→final redirects, and forced sitemap.
+		add_action(
+			'wp_head',
+			array( 'RankPilot_Connector_Fixes', 'output_canonical' ),
+			9
+		);
+		add_action(
+			'template_redirect',
+			array( 'RankPilot_Connector_Fixes', 'do_managed_redirects' ),
+			1
+		);
+		add_filter(
+			'wp_sitemaps_enabled',
+			array( 'RankPilot_Connector_Fixes', 'force_sitemap_enabled' )
+		);
+
 		if ( is_admin() ) {
 			add_action( 'admin_menu', array( $this->admin, 'register_menu' ) );
 			add_action(

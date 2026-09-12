@@ -18,13 +18,68 @@ from app.api.deps import ensure_project_access, get_current_user
 from app.core.queue import dispatch, get_arq_optional
 from app.db.base import get_db
 from app.models.audit import AuditReport
+from app.models.technical_seo import TechnicalSEOIssue
 from app.models.user import User
 from app.schemas.audit import AuditRead, AuditRequest
 from app.schemas.jobs import JobEnqueued
-from app.schemas.technical_seo import TechnicalSeoResponse
+from app.schemas.technical_seo import (
+    TechnicalIssueRead,
+    TechnicalIssueStatusUpdate,
+    TechnicalSeoResponse,
+)
 from app.services import technical_seo_service
 
 router = APIRouter()
+
+# Order issues so actionable, high-confidence findings surface first.
+_CONFIDENCE_ORDER = {"auto": 0, "suggest": 1, "manual": 2}
+
+
+@router.get("/technical-issues", response_model=list[TechnicalIssueRead])
+async def list_technical_issues(
+    project_id: uuid.UUID,
+    issue_type: str | None = None,
+    status_filter: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TechnicalSEOIssue]:
+    """List the extended technical-SEO issues detected for a project."""
+    await ensure_project_access(project_id, current_user, db)
+    stmt = select(TechnicalSEOIssue).where(
+        TechnicalSEOIssue.project_id == project_id
+    )
+    if issue_type:
+        stmt = stmt.where(TechnicalSEOIssue.issue_type == issue_type)
+    if status_filter:
+        stmt = stmt.where(TechnicalSEOIssue.status == status_filter)
+    rows = list((await db.execute(stmt)).scalars().all())
+    rows.sort(
+        key=lambda i: (
+            _CONFIDENCE_ORDER.get(i.fix_confidence, 3),
+            i.issue_type,
+        )
+    )
+    return rows
+
+
+@router.patch(
+    "/technical-issues/{issue_id}/status", response_model=TechnicalIssueRead
+)
+async def update_technical_issue_status(
+    issue_id: uuid.UUID,
+    payload: TechnicalIssueStatusUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TechnicalSEOIssue:
+    """Update an issue's lifecycle status (open/fixed/reverted/ignored)."""
+    issue = await db.get(TechnicalSEOIssue, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    await ensure_project_access(issue.project_id, current_user, db, min_role="editor")
+    issue.status = payload.status
+    await db.commit()
+    await db.refresh(issue)
+    return issue
 
 
 @router.get("/technical-seo", response_model=TechnicalSeoResponse)

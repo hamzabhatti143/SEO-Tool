@@ -222,6 +222,21 @@ export interface TechnicalSeoResponse {
   llms: LlmsTxtAudit | null;
 }
 
+// --- Technical-SEO issues (extended detection engine) ---
+export type FixConfidence = "auto" | "suggest" | "manual";
+export type IssueStatus = "open" | "fixed" | "reverted" | "ignored";
+
+export interface TechnicalIssue {
+  id: string;
+  project_id: string;
+  issue_type: string;
+  page_url: string;
+  details: Record<string, unknown> | null;
+  fix_confidence: FixConfidence;
+  status: IssueStatus;
+  detected_at: string;
+}
+
 // --- Core Web Vitals (PageSpeed Insights) ---
 export type CWVStrategy = "mobile" | "desktop";
 export type CWVCategoryKey =
@@ -895,6 +910,22 @@ export const api = {
     ),
   listAudits: (projectId: string) =>
     request<Audit[]>(`/audits?project_id=${projectId}`),
+
+  // Technical-SEO issues (detection engine + platform-routed fixes)
+  listTechnicalIssues: (projectId: string) =>
+    request<TechnicalIssue[]>(
+      `/audits/technical-issues?project_id=${projectId}`
+    ),
+  fixTechnicalIssue: (projectId: string, issueId: string) =>
+    request<FixResponse>(
+      `/projects/${projectId}/technical/fix/${issueId}`,
+      { method: "POST", direct: true } // fix may call the platform API — bypass proxy
+    ),
+  updateTechnicalIssueStatus: (issueId: string, status: IssueStatus) =>
+    request<TechnicalIssue>(`/audits/technical-issues/${issueId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 
   // Core Web Vitals (synchronous Lighthouse scan → stored + returned)
   runCoreWebVitals: (data: {

@@ -31,8 +31,24 @@ from app.core.crypto import InvalidToken, decrypt
 from app.models.change_log import ChangeLog
 from app.models.core_web_vitals import CoreWebVitals
 from app.models.project import Project
+from app.models.technical_seo import TechnicalSEOIssue
 from app.services import connector_service, core_web_vitals_service
 from app.services.core_web_vitals_service import CoreWebVitalsError
+
+# The auto/suggest technical-SEO fix types that route to a platform handler
+# (manual-only types like broken_external_link/duplicate_content/orphan_pages
+# never reach an apply-fix action).
+_TECHNICAL_FIX_TYPES = frozenset(
+    {
+        "redirect_chain",
+        "missing_canonical",
+        "incorrect_canonical",
+        "missing_sitemap",
+        "broken_internal_link",
+        "mixed_content",
+        "missing_alt_text",
+    }
+)
 
 # Browser-like User-Agent for calls to the rankpilot/v1 plugin endpoints; some
 # hosts/WAFs/CDNs block non-browser agents. Kept in step with the one in
@@ -371,6 +387,148 @@ _REVERT_HANDLERS = {
 
 
 # ---------------------------------------------------------------------------
+# Technical-SEO fix routing (same ChangeLog + revert pattern as CWV)
+# ---------------------------------------------------------------------------
+
+
+def _alt_for(image_url: str, page_url: str) -> str:
+    """Derive alt text for an image (filename → words). AI can override later."""
+    slug = image_url.rstrip("/").split("/")[-1].split("?")[0]
+    slug = slug.rsplit(".", 1)[0]  # drop extension
+    words = slug.replace("-", " ").replace("_", " ").strip()
+    return words[:120] or "Image"
+
+
+def _technical_plan(issue: TechnicalSEOIssue) -> tuple[str, str, dict[str, Any]]:
+    """Map a detected issue to a handler's (fix_type, target, data)."""
+    ft = issue.issue_type
+    d = issue.details or {}
+    if ft == "redirect_chain":
+        chain = [h.get("url") for h in (d.get("chain") or []) if h.get("url")]
+        return ft, issue.page_url, {"final_url": d.get("final_url"), "chain": chain}
+    if ft in ("missing_canonical", "incorrect_canonical"):
+        # The correct canonical is the page's own URL (self-referential).
+        return ft, issue.page_url, {"canonical": issue.page_url}
+    if ft == "missing_sitemap":
+        return ft, "site", {}
+    if ft == "broken_internal_link":
+        refs = d.get("referring_pages") or []
+        target = refs[0] if refs else issue.page_url
+        return ft, target, {
+            "broken_url": issue.page_url,
+            "replacement_url": d.get("suggested_replacement"),
+        }
+    if ft == "mixed_content":
+        resources = [
+            r.get("url")
+            for r in (d.get("resources") or [])
+            if r.get("url") and r.get("https_reachable")
+        ]
+        return ft, issue.page_url, {"resources": resources}
+    if ft == "missing_alt_text":
+        images = d.get("images") or []
+        target = images[0] if images else issue.page_url
+        return ft, target, {"alt": _alt_for(str(target), issue.page_url)}
+    raise FixError(f"'{ft}' has no automated fix.")
+
+
+async def _wordpress_technical_apply(
+    db: AsyncSession, project: Project, fix_type: str, target: str, data: dict
+) -> FixHandlerResult:
+    """Snapshot + apply-fix one technical fix via the RankPilot Connector plugin."""
+    site_url, key = await _wp_credentials(db, project)
+    snap = await _wp_request(
+        site_url, key, "/snapshot",
+        {"change_type": fix_type, "target": target, "data": data},
+    )
+    change_id = snap.get("change_id")
+    if change_id is None:
+        raise FixError("/snapshot did not return a change_id.")
+    result = await _wp_request(
+        site_url, key, "/apply-fix",
+        {"change_id": change_id, "fix_type": fix_type},
+    )
+    return FixHandlerResult(
+        external_change_id=str(change_id),
+        issue_type=fix_type,
+        before_snapshot={"before": result.get("before_snapshot")},
+        after_snapshot={"after": result.get("after_snapshot")},
+        detail=f"Applied WordPress {fix_type} fix.",
+    )
+
+
+async def apply_technical_fix(
+    db: AsyncSession, project: Project, issue: TechnicalSEOIssue
+) -> OrchestrationResult:
+    """Apply one auto/suggest technical-SEO fix, routed by platform, and log it."""
+    if issue.fix_confidence == "manual":
+        raise FixError(
+            "This issue has no automated fix — resolve it manually."
+        )
+    if issue.issue_type not in _TECHNICAL_FIX_TYPES:
+        raise FixError(f"'{issue.issue_type}' is not an auto-fixable issue.")
+
+    fix_type, target, data = _technical_plan(issue)
+
+    if project.platform == "wordpress":
+        result = await _wordpress_technical_apply(
+            db, project, fix_type, target, data
+        )
+    elif project.platform == "shopify":
+        from app.services import shopify_fix_service  # lazy: avoids import cycle
+
+        result = await shopify_fix_service.apply_technical_fix(
+            db, project, fix_type, target, data
+        )
+    else:
+        raise FixError(
+            f"Project platform '{project.platform}' cannot be auto-fixed. "
+            "Connect a WordPress or Shopify site first."
+        )
+
+    change = ChangeLog(
+        project_id=project.id,
+        platform=project.platform,
+        issue_type=fix_type,
+        external_change_id=result.external_change_id,
+        before_snapshot={
+            **(result.before_snapshot or {}),
+            "technical_issue_id": str(issue.id),
+        },
+        after_snapshot=result.after_snapshot,
+        applied_at=datetime.now(timezone.utc),
+        status="applied",
+    )
+    db.add(change)
+    issue.status = "fixed"
+    await db.commit()
+    await db.refresh(change)
+
+    return OrchestrationResult(
+        change=change,
+        new_scan=None,
+        rescan_status="skipped",
+        detail=result.detail,
+    )
+
+
+async def _technical_revert(
+    db: AsyncSession, project: Project, change: ChangeLog
+) -> FixHandlerResult:
+    """Revert a technical-SEO change on the right platform."""
+    if project.platform == "wordpress":
+        # The plugin reverts by its own change id(s) — reuse the CWV path.
+        return await _wordpress_revert(db, project, change)
+    if project.platform == "shopify":
+        from app.services import shopify_fix_service  # lazy: avoids import cycle
+
+        return await shopify_fix_service.revert_technical_fix(db, project, change)
+    raise FixError(
+        f"Project platform '{project.platform}' cannot be reverted."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
@@ -426,6 +584,25 @@ async def revert_fix(
     """Revert a previously applied change, then re-scan and record the result."""
     if change.status == "reverted":
         raise FixError("This change has already been reverted.")
+
+    # Technical-SEO changes route to the technical revert and skip the CWV
+    # re-scan (there's no CWV score to refresh); reopen the linked issue.
+    if change.issue_type in _TECHNICAL_FIX_TYPES:
+        result = await _technical_revert(db, project, change)
+        change.status = "reverted"
+        issue_id = (change.before_snapshot or {}).get("technical_issue_id")
+        if issue_id:
+            issue = await db.get(TechnicalSEOIssue, uuid.UUID(str(issue_id)))
+            if issue is not None:
+                issue.status = "reverted"
+        await db.commit()
+        await db.refresh(change)
+        return OrchestrationResult(
+            change=change,
+            new_scan=None,
+            rescan_status="skipped",
+            detail=result.detail,
+        )
 
     handler = _REVERT_HANDLERS.get(project.platform)
     if handler is None:

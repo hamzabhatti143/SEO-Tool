@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     INTERNAL_LINK_SIM_THRESHOLD: float = 0.35
     INTERNAL_LINK_TOP_K: int = 3
 
+    # --- Technical-SEO issue detection (extended audit crawler) ---
+    # Bounds the extra crawl that finds broken/redirect/canonical/duplicate/
+    # orphan/mixed-content/alt-text issues so a scan stays fast + polite.
+    TECH_ISSUE_MAX_PAGES: int = 40
+    TECH_ISSUE_MAX_LINKS: int = 150  # total unique links status-checked
+    TECH_ISSUE_CONCURRENCY: int = 8
+    TECH_ISSUE_MAX_SITEMAP_CHECKS: int = 25
+    # Minimum slug similarity (0–1) to suggest a replacement for a broken link.
+    TECH_ISSUE_SLUG_MATCH_THRESHOLD: float = 0.6
+
     # --- Rank Tracking (SerpApi) ---
     # SerpApi API key. Free tier is ~100 searches/month; paid beyond that.
     # Get one at https://serpapi.com/. Leave blank to disable live lookups.

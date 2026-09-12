@@ -103,7 +103,8 @@ export default function FixHistoryPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Fix History</h1>
           <p className="text-muted-foreground">
-            Automated Core Web Vitals fixes applied to {currentProject.name}.
+            Automated fixes (Core Web Vitals + Technical SEO) applied to{" "}
+            {currentProject.name}.
           </p>
         </div>
         <Badge variant={platform.variant}>{platform.label}</Badge>
@@ -258,10 +259,12 @@ function ChangeRow({
         </p>
       </div>
 
-      <ScoreDelta
-        before={change.cwv_score_before}
-        after={change.cwv_score_after}
-      />
+      {(change.cwv_score_before != null || change.cwv_score_after != null) && (
+        <ScoreDelta
+          before={change.cwv_score_before}
+          after={change.cwv_score_after}
+        />
+      )}
 
       {change.status === "applied" && (
         <Button

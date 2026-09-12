@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { FadeIn } from "@/components/motion";
 import { useProject } from "@/components/project-provider";
+import { TechnicalIssues } from "@/components/technical-issues";
 import {
   api,
   runJob,
@@ -298,6 +299,10 @@ export default function AuditPage() {
           <RobotsCard robots={tech.robots} />
           <LlmsCard llms={tech.llms} />
         </>
+      )}
+
+      {currentProject && (
+        <TechnicalIssues key={currentProject.id} projectId={currentProject.id} />
       )}
     </div>
   );

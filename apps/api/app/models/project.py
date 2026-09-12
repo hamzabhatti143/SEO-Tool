@@ -22,7 +22,12 @@ if TYPE_CHECKING:
     from app.models.keyword import Keyword
     from app.models.page import ProjectPage
     from app.models.rank_tracking import TrackedKeyword
-    from app.models.technical_seo import LlmsTxtAudit, RobotsAudit, SchemaAudit
+    from app.models.technical_seo import (
+        LlmsTxtAudit,
+        RobotsAudit,
+        SchemaAudit,
+        TechnicalSEOIssue,
+    )
     from app.models.user import User
 
 
@@ -72,6 +77,9 @@ class Project(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     llms_txt_audits: Mapped[list[LlmsTxtAudit]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    technical_seo_issues: Mapped[list[TechnicalSEOIssue]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
     keywords: Mapped[list[Keyword]] = relationship(

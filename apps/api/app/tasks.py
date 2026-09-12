@@ -29,6 +29,7 @@ from app.services import (
     gap_analysis_service,
     internal_link_service,
     keyword_service,
+    technical_issue_service,
     technical_seo_service,
 )
 from app.services.project_summary import build_user_summary
@@ -102,6 +103,16 @@ async def task_run_audit(ctx: dict, project_id: str, url: str) -> dict[str, Any]
             )
         except Exception as exc:  # noqa: BLE001 - degrade cleanly
             logger.warning("Technical-SEO analysis failed for %s: %s", url, exc)
+
+        # Extended detection engine: broken/redirect/canonical/duplicate/
+        # orphan/mixed-content/alt issues. Best-effort; never fail the audit.
+        try:
+            count = await technical_issue_service.detect_and_store(
+                db, uuid.UUID(project_id), url
+            )
+            logger.info("Detected %d technical-SEO issue(s) for %s", count, url)
+        except Exception as exc:  # noqa: BLE001 - degrade cleanly
+            logger.warning("Technical-issue detection failed for %s: %s", url, exc)
 
         return {"audit_id": str(audit.id), "score": score}
 

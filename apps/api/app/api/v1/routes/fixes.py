@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import ensure_project_access, get_current_user
 from app.db.base import get_db
 from app.models.change_log import ChangeLog
+from app.models.technical_seo import TechnicalSEOIssue
 from app.models.user import User
 from app.schemas.core_web_vitals import CoreWebVitalsRead
 from app.schemas.fixes import ChangeLogRead, FixAllRequest, FixResponse
@@ -54,6 +55,35 @@ async def fix_all(
     )
     try:
         result = await fix_service.apply_fix_all(db, project, url)
+    except FixError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return _to_response(result)
+
+
+@router.post(
+    "/{project_id}/technical/fix/{issue_id}", response_model=FixResponse
+)
+async def fix_technical_issue(
+    project_id: uuid.UUID,
+    issue_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FixResponse:
+    """Apply one auto/suggest technical-SEO fix (routed by platform), and log it.
+
+    Reverting uses the same ``/cwv/revert/{change_id}`` endpoint, and it shows
+    up in the same Fix History (``/cwv/changes``) as every other change.
+    """
+    project = await ensure_project_access(
+        project_id, current_user, db, min_role="editor"
+    )
+    issue = await db.get(TechnicalSEOIssue, issue_id)
+    if issue is None or issue.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    try:
+        result = await fix_service.apply_technical_fix(db, project, issue)
     except FixError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)

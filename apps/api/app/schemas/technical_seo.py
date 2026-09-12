@@ -69,3 +69,22 @@ class TechnicalSeoResponse(BaseModel):
     schema_audits: list[SchemaAuditRead] = Field(default_factory=list)
     robots: RobotsAuditRead | None = None
     llms: LlmsTxtAuditRead | None = None
+
+
+class TechnicalIssueRead(BaseModel):
+    """A single detected technical-SEO issue (extended detection engine)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    issue_type: str
+    page_url: str
+    details: dict[str, Any] | None = None
+    fix_confidence: str  # auto | suggest | manual
+    status: str  # open | fixed | reverted | ignored
+    detected_at: datetime
+
+
+class TechnicalIssueStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(open|fixed|reverted|ignored)$")

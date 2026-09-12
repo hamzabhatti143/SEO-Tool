@@ -77,6 +77,46 @@ class RobotsAudit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     project: Mapped[Project] = relationship(back_populates="robots_audits")
 
 
+class TechnicalSEOIssue(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One technical-SEO issue detected during a project scan.
+
+    ``details`` is a per-type JSON payload (broken-link target + suggested
+    replacement, redirect chain array, duplicate-group urls, etc.). Each scan
+    replaces the project's previous issues so the table reflects current state.
+    """
+
+    __tablename__ = "technical_seo_issues"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    # broken_internal_link | broken_external_link | redirect_chain |
+    # missing_canonical | incorrect_canonical | missing_sitemap |
+    # sitemap_errors | duplicate_content | orphan_pages | mixed_content |
+    # missing_alt_text
+    issue_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    page_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # auto | suggest | manual
+    fix_confidence: Mapped[str] = mapped_column(
+        String(16), default="manual", nullable=False
+    )
+    # open | fixed | reverted | ignored
+    status: Mapped[str] = mapped_column(
+        String(16), default="open", server_default="open", nullable=False
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    project: Mapped[Project] = relationship(
+        back_populates="technical_seo_issues"
+    )
+
+
 class LlmsTxtAudit(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """llms.txt fetch + spec-format check for a project's site."""
 
