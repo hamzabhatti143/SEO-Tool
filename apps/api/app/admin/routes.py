@@ -158,14 +158,17 @@ async def create_account(
             detail="Email already registered",
         )
 
-    temp_password = generate_temp_password()
+    # Use the admin-provided password if given; otherwise generate a temporary
+    # one and force a change on first login.
+    admin_set = payload.password is not None
+    password = payload.password or generate_temp_password()
     user = User(
         email=payload.email,
-        hashed_password=hash_password(temp_password),
+        hashed_password=hash_password(password),
         full_name=payload.full_name,
         plan=payload.plan,
         status="active",
-        must_change_password=True,
+        must_change_password=not admin_set,
     )
     user.subscription = Subscription(tier=payload.plan, status="active")
     db.add(user)
@@ -175,12 +178,12 @@ async def create_account(
     emailed = False
     if payload.send_email:
         emailed = await email_service.send_new_account_email(
-            user.email, temp_password, user.full_name
+            user.email, password, user.full_name
         )
 
     return AccountCreateResponse(
         account=await _to_account(db, user),
-        temporary_password=temp_password,
+        temporary_password=password,
         emailed=emailed,
     )
 
@@ -205,6 +208,11 @@ async def update_account(
             user.subscription.tier = data["plan"]
         else:
             user.subscription = Subscription(tier=data["plan"], status="active")
+    if data.get("password"):
+        # Admin set a new password directly — it's the working password, so
+        # clear the forced-change flag.
+        user.hashed_password = hash_password(data["password"])
+        user.must_change_password = False
 
     await db.commit()
     await db.refresh(user)

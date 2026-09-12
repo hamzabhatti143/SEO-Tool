@@ -110,6 +110,7 @@ export const adminApi = {
     email: string;
     full_name?: string | null;
     plan: Tier;
+    password?: string;
     send_email?: boolean;
   }) =>
     request<AccountCreateResponse>("/accounts", {
@@ -119,7 +120,7 @@ export const adminApi = {
 
   updateAccount: (
     id: string,
-    data: { full_name?: string | null; plan?: Tier }
+    data: { full_name?: string | null; plan?: Tier; password?: string }
   ) =>
     request<Account>(`/accounts/${id}`, {
       method: "PATCH",

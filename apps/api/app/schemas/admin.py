@@ -10,9 +10,23 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.schemas.user import Tier
+
+
+def _clean_optional_password(value: str | None) -> str | None:
+    """Treat blank as "no password"; require 8–128 chars when provided."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) < 8:
+        raise ValueError("Password must be at least 8 characters.")
+    if len(value) > 128:
+        raise ValueError("Password must be at most 128 characters.")
+    return value
 
 
 class AdminLoginRequest(BaseModel):
@@ -44,8 +58,13 @@ class AccountCreate(BaseModel):
     email: EmailStr
     full_name: str | None = None
     plan: Tier = "standard"
-    # Email the temporary password to the new user when configured.
+    # Optional: set the user's initial password. Left blank, a temporary
+    # password is generated and the user is forced to change it on first login.
+    password: str | None = None
+    # Email the password to the new user when configured.
     send_email: bool = True
+
+    _clean_password = field_validator("password")(_clean_optional_password)
 
 
 class AccountCreateResponse(BaseModel):
@@ -55,10 +74,14 @@ class AccountCreateResponse(BaseModel):
 
 
 class AccountUpdate(BaseModel):
-    """Edit account details and/or change the subscription tier."""
+    """Edit account details, change the subscription tier, and/or reset password."""
 
     full_name: str | None = None
     plan: Tier | None = None
+    # Optional: set a new password. Blank/absent leaves the password unchanged.
+    password: str | None = None
+
+    _clean_password = field_validator("password")(_clean_optional_password)
 
 
 class AccountStatusUpdate(BaseModel):

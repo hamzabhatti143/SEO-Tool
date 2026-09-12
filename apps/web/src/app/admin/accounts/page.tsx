@@ -423,6 +423,7 @@ function CreateAccountModal({
   const [email, setEmail] = React.useState("");
   const [fullName, setFullName] = React.useState("");
   const [plan, setPlan] = React.useState<Tier>("standard");
+  const [password, setPassword] = React.useState("");
   const [sendEmail, setSendEmail] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState<AccountCreateResponse | null>(
@@ -433,6 +434,7 @@ function CreateAccountModal({
     setEmail("");
     setFullName("");
     setPlan("standard");
+    setPassword("");
     setSendEmail(true);
     setResult(null);
   }
@@ -445,6 +447,7 @@ function CreateAccountModal({
         email,
         full_name: fullName || null,
         plan,
+        password: password.trim() || undefined,
         send_email: sendEmail,
       });
       setResult(res);
@@ -464,7 +467,7 @@ function CreateAccountModal({
         onClose();
       }}
       title="Create account"
-      description="A temporary password is generated; the user sets their own on first login."
+      description="Set a password, or leave it blank to auto-generate a temporary one the user must change on first login."
     >
       {result ? (
         <div className="space-y-4">
@@ -472,9 +475,7 @@ function CreateAccountModal({
             Account created for <strong>{result.account.email}</strong>.
           </p>
           <div className="rounded-md border bg-muted/40 p-3">
-            <p className="text-xs uppercase text-muted-foreground">
-              Temporary password
-            </p>
+            <p className="text-xs uppercase text-muted-foreground">Password</p>
             <code className="text-lg tracking-wide">
               {result.temporary_password}
             </code>
@@ -519,13 +520,29 @@ function CreateAccountModal({
             <Label htmlFor="c-plan">Subscription tier</Label>
             <TierSelect id="c-plan" value={plan} onChange={setPlan} />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="c-password">Password</Label>
+            <Input
+              id="c-password"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to auto-generate"
+              minLength={8}
+              autoComplete="new-password"
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. If blank, a temporary password is generated and the
+              user must change it on first login.
+            </p>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={sendEmail}
               onChange={(e) => setSendEmail(e.target.checked)}
             />
-            Email the temporary password to the user
+            Email the password to the user
           </label>
           <Button type="submit" className="w-full" disabled={busy}>
             {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -550,12 +567,14 @@ function EditAccountModal({
 }) {
   const [fullName, setFullName] = React.useState("");
   const [plan, setPlan] = React.useState<Tier>("standard");
+  const [password, setPassword] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (account) {
       setFullName(account.full_name ?? "");
       setPlan(account.plan);
+      setPassword("");
     }
   }, [account]);
 
@@ -567,6 +586,7 @@ function EditAccountModal({
       await adminApi.updateAccount(account.id, {
         full_name: fullName || null,
         plan,
+        password: password.trim() || undefined,
       });
       await onSaved();
       onClose();
@@ -596,6 +616,21 @@ function EditAccountModal({
         <div className="space-y-2">
           <Label htmlFor="e-plan">Subscription tier</Label>
           <TierSelect id="e-plan" value={plan} onChange={setPlan} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="e-password">New password</Label>
+          <Input
+            id="e-password"
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Leave blank to keep current"
+            minLength={8}
+            autoComplete="new-password"
+          />
+          <p className="text-xs text-muted-foreground">
+            Optional. Sets a new password for this user immediately.
+          </p>
         </div>
         <Button type="submit" className="w-full" disabled={busy}>
           {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
