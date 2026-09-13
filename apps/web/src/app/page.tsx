@@ -442,6 +442,14 @@ export default function HomePage() {
                   Contact us
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/privacy-policy"
+                  className="hover:text-foreground"
+                >
+                  Privacy Policy
+                </Link>
+              </li>
             </ul>
           </div>
         </div>
