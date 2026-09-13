@@ -1,9 +1,10 @@
 """Automation service.
 
 Runs the scheduled automations and emails a report when a run completes:
-  - Daily: broken-link monitoring (which links are newly broken).
-  - Weekly: audit re-run, competitor content-change detection, and content/
-    keyword stats.
+  - Daily: a COMPLETE re-run — full site audit, broken-link monitoring,
+    competitor content diff, and content/keyword stats — emailed as one report.
+  - Weekly: the same audit re-run, competitor content-change detection, and
+    content/keyword stats (gated by the per-project weekly toggles).
 
 When a run finishes for a project, a single well-formatted **Automation
 Report** email is sent to the owner — but only for **Premium** accounts (the
@@ -19,7 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import func, select
@@ -63,17 +64,49 @@ async def _targets(
 
 # --- Daily ---------------------------------------------------------------
 async def run_daily(db: AsyncSession, project_id: uuid.UUID | None = None) -> int:
+    """Perform a COMPLETE re-run per project and email the full report.
+
+    A daily run now re-runs the whole pipeline — full site audit, broken-link
+    check, competitor content diff, and content/keyword stats — then sends one
+    comprehensive Automation Report. Each section is best-effort so a single
+    failure never blocks the rest of the report or the batch.
+    """
     processed = 0
     for s, project, owner_email, owner_plan in await _targets(db, project_id):
         email_to = s.notification_email or owner_email
         sections: list[str] = []
-        if s.broken_link_monitoring:
+
+        # 1. Full site audit (the core re-run).
+        try:
+            sections.append(await _audit_section(db, s, project))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Daily audit failed for %s: %s", project.domain, exc)
+
+        # 2. Broken-link monitoring.
+        try:
+            sections.append(await _broken_link_section(s, project))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Broken-link check failed for %s: %s", project.domain, exc
+            )
+
+        # 3. Competitor content diff (only when competitors are configured).
+        if s.competitor_urls:
             try:
-                sections.append(await _broken_link_section(s, project))
+                sections.append(await _competitor_section(s, project))
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Broken-link check failed for %s: %s", project.domain, exc
+                    "Competitor diff failed for %s: %s", project.domain, exc
                 )
+
+        # 4. Content & keyword stats.
+        try:
+            sections.append(await _stats_section(db, project))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Stats section failed for %s: %s", project.domain, exc
+            )
+
         await _maybe_send_report(
             project, email_to, owner_plan, s, "Daily", sections
         )
@@ -127,7 +160,7 @@ async def run_weekly(db: AsyncSession, project_id: uuid.UUID | None = None) -> i
 
         if s.weekly_audit:
             try:
-                sections.append(await _weekly_audit_section(db, s, project))
+                sections.append(await _audit_section(db, s, project))
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Weekly audit failed for %s: %s", project.domain, exc
@@ -153,7 +186,7 @@ async def run_weekly(db: AsyncSession, project_id: uuid.UUID | None = None) -> i
     return processed
 
 
-async def _weekly_audit_section(
+async def _audit_section(
     db: AsyncSession, s: AutomationSettings, project: Project
 ) -> str:
     url = s.audit_url or _homepage(project)
@@ -165,7 +198,7 @@ async def _weekly_audit_section(
             status="completed",
             score=score,
             results=results.model_dump(),
-            completed_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(UTC),
         )
     )
     issues = len(results.issues)
@@ -265,7 +298,7 @@ def _section(title: str, body_html: str) -> str:
 
 
 def _report_html(project: Project, kind: str, sections: list[str]) -> str:
-    when = datetime.now(timezone.utc).strftime("%b %d, %Y")
+    when = datetime.now(UTC).strftime("%b %d, %Y")
     dashboard = f"{settings.FRONTEND_URL.rstrip('/')}/dashboard"
     inner = (
         f"<p style='margin:0 0 4px;font-size:16px;font-weight:600;color:#0f172a'>"
