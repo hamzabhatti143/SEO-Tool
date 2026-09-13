@@ -122,33 +122,48 @@ async def _broken_link_section(s: AutomationSettings, project: Project) -> str:
     report = await backlink_service.find_broken_links(url)
     current = sorted({link.url for link in report.broken_links})
     previous = set(s.last_broken_links or [])
-    new_broken = [u for u in current if u not in previous]
+    new_broken = {u for u in current if u not in previous}
     s.last_broken_links = current
 
     link = f'<a href="{url}" style="color:#4f46e5">{url}</a>'
-    if new_broken:
-        items = "".join(
-            f'<li style="margin:2px 0"><a href="{u}" style="color:#4f46e5">'
-            f"{u}</a></li>"
-            for u in new_broken[:15]
+    if report.broken_links:
+        rows = "".join(
+            _broken_row(b, b.url in new_broken) for b in report.broken_links[:20]
         )
         more = (
-            f"<p style='color:#64748b'>…and {len(new_broken) - 15} more.</p>"
-            if len(new_broken) > 15
+            f"<p style='color:#64748b'>…and {report.broken_count - 20} more.</p>"
+            if report.broken_count > 20
             else ""
         )
+        new_note = f" ({len(new_broken)} new)" if new_broken else ""
         body = (
-            f'<p><strong style="color:#dc2626">{len(new_broken)} new broken '
-            f"link(s)</strong> found out of {report.links_checked} checked on "
-            f"{link}:</p><ul style='padding-left:18px;margin:6px 0'>{items}</ul>"
-            f"{more}"
+            f'<p><strong style="color:#dc2626">{report.broken_count} broken '
+            f"link(s)</strong>{new_note} found out of {report.links_checked} "
+            f"checked on {link}:</p>"
+            f"<ul style='padding-left:18px;margin:6px 0'>{rows}</ul>{more}"
         )
     else:
         body = (
-            f"✅ No new broken links — checked {report.links_checked} link(s) "
-            f"on {link}. Total currently broken: {report.broken_count}."
+            f"✅ No broken links — checked {report.links_checked} link(s) "
+            f"on {link}."
         )
     return _section("Broken-link monitoring", body)
+
+
+def _broken_row(b, is_new: bool) -> str:
+    status = b.status_code if b.status_code else (b.reason or "error")
+    new_tag = (
+        " <span style='color:#dc2626;font-weight:600'>(new)</span>"
+        if is_new
+        else ""
+    )
+    anchor = f" — “{b.anchor}”" if b.anchor else ""
+    return (
+        "<li style='margin:2px 0'>"
+        f'<a href="{b.url}" style="color:#4f46e5">{b.url}</a> '
+        f"<span style='color:#64748b'>[{status}]</span>{new_tag}"
+        f"<span style='color:#94a3b8'>{anchor}</span></li>"
+    )
 
 
 # --- Weekly --------------------------------------------------------------
@@ -201,16 +216,53 @@ async def _audit_section(
             completed_at=datetime.now(UTC),
         )
     )
-    issues = len(results.issues)
+    issues = results.issues
     label, color = _score_label(score)
     body = (
         f'<p>Audited <a href="{url}" style="color:#4f46e5">{url}</a>.</p>'
         f'<p style="font-size:22px;font-weight:700;color:{color};margin:4px 0">'
         f"{score}/100 <span style='font-size:13px;font-weight:600'>"
         f"({label})</span></p>"
-        f"<p style='color:#334155'>{issues} issue(s) flagged in this scan.</p>"
     )
+    if issues:
+        # Show critical → warning → info, listing each issue with its fix.
+        ordered = sorted(issues, key=lambda i: _SEVERITY_ORDER.get(_sev(i), 3))
+        rows = "".join(_issue_row(i) for i in ordered[:20])
+        more = (
+            f"<p style='color:#64748b'>…and {len(issues) - 20} more.</p>"
+            if len(issues) > 20
+            else ""
+        )
+        body += (
+            f"<p style='color:#334155'>{len(issues)} issue(s) flagged in this "
+            f"scan:</p><ul style='padding-left:18px;margin:6px 0'>{rows}</ul>"
+            f"{more}"
+        )
+    else:
+        body += "<p style='color:#059669'>✅ No issues flagged in this scan.</p>"
     return _section("Website audit", body)
+
+
+_SEVERITY_COLOR = {"critical": "#dc2626", "warning": "#d97706", "info": "#0284c7"}
+_SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
+
+
+def _sev(issue) -> str:
+    """Severity as a plain lowercase string (handles str-enum or str)."""
+    return str(getattr(issue.severity, "value", issue.severity)).lower()
+
+
+def _issue_row(issue) -> str:
+    sev = _sev(issue)
+    color = _SEVERITY_COLOR.get(sev, "#64748b")
+    return (
+        "<li style='margin:6px 0'>"
+        f"<span style='font-size:11px;font-weight:700;text-transform:uppercase;"
+        f"color:{color}'>{sev}</span> "
+        f"<span style='color:#0f172a'>{issue.message}</span>"
+        f"<div style='color:#64748b;font-size:13px;margin-top:1px'>"
+        f"{issue.recommendation}</div></li>"
+    )
 
 
 async def _competitor_section(s: AutomationSettings, project: Project) -> str:
