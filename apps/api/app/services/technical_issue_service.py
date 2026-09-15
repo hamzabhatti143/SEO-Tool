@@ -37,7 +37,7 @@ from xml.etree import ElementTree as ET
 
 import httpx
 from bs4 import BeautifulSoup
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -545,12 +545,36 @@ async def detect_and_store(
 
     issues = _build_issues(pages, link_status, https_reachable, sitemap, start)
 
+    # Preserve issues the user has already resolved ("fixed") or chosen to
+    # ignore across re-scans — only the transient open/reverted rows are
+    # replaced. Without this, a re-scan would wipe fixed issues and re-add them
+    # as "open", making resolved problems look unfixed every time.
+    kept = (
+        (
+            await db.execute(
+                select(
+                    TechnicalSEOIssue.issue_type, TechnicalSEOIssue.page_url
+                ).where(
+                    TechnicalSEOIssue.project_id == project_id,
+                    TechnicalSEOIssue.status.in_(("fixed", "ignored")),
+                )
+            )
+        )
+        .all()
+    )
+    kept_keys = {(issue_type, page_url) for issue_type, page_url in kept}
+
     await db.execute(
         delete(TechnicalSEOIssue).where(
-            TechnicalSEOIssue.project_id == project_id
+            TechnicalSEOIssue.project_id == project_id,
+            TechnicalSEOIssue.status.not_in(("fixed", "ignored")),
         )
     )
+    added = 0
     for it in issues:
+        # Don't re-open something already fixed/ignored (matched by type + page).
+        if (it["issue_type"], it["page_url"]) in kept_keys:
+            continue
         db.add(
             TechnicalSEOIssue(
                 project_id=project_id,
@@ -561,5 +585,6 @@ async def detect_and_store(
                 status="open",
             )
         )
+        added += 1
     await db.commit()
-    return len(issues)
+    return added
