@@ -1014,7 +1014,29 @@ class RankPilot_Connector_Fixes {
 		if ( ctype_digit( (string) $target ) ) {
 			$post_id = (int) $target;
 		} elseif ( preg_match( '#^https?://#i', $target ) ) {
-			$post_id = url_to_postid( $target );
+			$url     = strtok( $target, '#' ); // drop any fragment
+			$post_id = url_to_postid( $url );
+
+			// http<->https mismatch (common behind proxies/CDNs) makes
+			// url_to_postid() miss — retry with the opposite scheme.
+			if ( ! $post_id ) {
+				$alt = ( 0 === strpos( $url, 'https://' ) )
+					? 'http://' . substr( $url, 8 )
+					: 'https://' . substr( $url, 7 );
+				$post_id = url_to_postid( $alt );
+			}
+
+			// url_to_postid() never resolves the site front page. If the
+			// target is the home URL and a static page is set as the front
+			// page, use that page (compare host+path, ignoring scheme).
+			if ( ! $post_id ) {
+				$strip = '#^https?://#i';
+				$home  = untrailingslashit( preg_replace( $strip, '', home_url() ) );
+				$t     = untrailingslashit( preg_replace( $strip, '', strtok( $url, '?' ) ) );
+				if ( $t === $home && 'page' === get_option( 'show_on_front' ) ) {
+					$post_id = (int) get_option( 'page_on_front' );
+				}
+			}
 		}
 		if ( ! $post_id ) {
 			return self::error( 'not_found', 'Could not resolve a post/page for the target.', 400 );
