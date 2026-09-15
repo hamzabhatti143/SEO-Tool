@@ -142,9 +142,16 @@ class RankPilot_Connector_Ajax {
 	private function relay( $callback ) {
 		$request = new WP_REST_Request( 'POST' );
 
-		$raw = file_get_contents( 'php://input' );
-		$json = json_decode( (string) $raw, true );
+		$raw  = (string) file_get_contents( 'php://input' );
+		$json = json_decode( $raw, true );
 		if ( is_array( $json ) ) {
+			// The Fixes handlers read $request->get_json_params(), so the
+			// request must carry a JSON body + content-type exactly like a
+			// real REST request. set_body_params() alone leaves get_json_params()
+			// empty over admin-ajax, which made every call fail with
+			// "Unknown or missing change_type".
+			$request->set_header( 'Content-Type', 'application/json' );
+			$request->set_body( $raw );
 			$request->set_body_params( $json );
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- key-based auth, not cookie auth.
