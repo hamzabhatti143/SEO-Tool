@@ -87,7 +87,17 @@ def build_wp_request(
     strip the Authorization header (the plugin's auth accepts either).
     """
     url = build_wp_endpoint(site_url, action, transport)
-    headers = {"User-Agent": _USER_AGENT, "Accept": "application/json"}
+    origin = site_url.rstrip("/")
+    headers = {
+        "User-Agent": _USER_AGENT,
+        "Accept": "application/json",
+        # Same-origin Referer/Origin. Some hosts' WAF (e.g. cPanel ModSecurity)
+        # returns HTTP 406 for POSTs to wp-json / admin-ajax.php that lack them,
+        # since a real logged-in admin AJAX call always carries them. Mirroring
+        # them clears that false positive without any host-side change.
+        "Referer": f"{origin}/wp-admin/",
+        "Origin": origin,
+    }
     if transport == "ajax":
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}{urlencode({'rankpilot_key': api_key})}"

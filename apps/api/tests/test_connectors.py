@@ -75,6 +75,11 @@ def test_build_wp_request_auth_by_transport() -> None:
     assert "action=rankpilot_snapshot" in url
     assert "rankpilot_key=SECRETKEY" in url
 
+    # Both transports carry a same-origin Referer/Origin so a host WAF
+    # (ModSecurity) doesn't 406 the POST.
+    assert headers["Origin"] == "https://example.com"
+    assert headers["Referer"].startswith("https://example.com")
+
 
 async def test_check_connection_falls_back_to_ajax(monkeypatch) -> None:
     """REST failing should transparently try admin-ajax and report it."""
