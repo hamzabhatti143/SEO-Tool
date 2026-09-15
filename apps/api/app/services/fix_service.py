@@ -32,7 +32,11 @@ from app.models.change_log import ChangeLog
 from app.models.core_web_vitals import CoreWebVitals
 from app.models.project import Project
 from app.models.technical_seo import TechnicalSEOIssue
-from app.services import connector_service, core_web_vitals_service
+from app.services import (
+    connector_service,
+    core_web_vitals_service,
+    wordpress_service,
+)
 from app.services.core_web_vitals_service import CoreWebVitalsError
 
 # The auto/suggest technical-SEO fix types that route to a platform handler
@@ -48,14 +52,6 @@ _TECHNICAL_FIX_TYPES = frozenset(
         "mixed_content",
         "missing_alt_text",
     }
-)
-
-# Browser-like User-Agent for calls to the rankpilot/v1 plugin endpoints; some
-# hosts/WAFs/CDNs block non-browser agents. Kept in step with the one in
-# wordpress_service.py.
-_WP_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 # Maps a Lighthouse audit id (as stored in a scan's insights/diagnostics) to
@@ -112,8 +108,13 @@ class OrchestrationResult:
 
 async def _wp_credentials(
     db: AsyncSession, project: Project
-) -> tuple[str, str]:
-    """Return (site_url, api_key) for the project's WordPress connection."""
+) -> tuple[str, str, str]:
+    """Return (site_url, api_key, transport) for the WordPress connection.
+
+    ``transport`` is the channel that verified at connect time ("rest" or the
+    admin-ajax "ajax" fallback); defaults to "rest" for connections saved
+    before transport detection existed.
+    """
     cred = await connector_service.get_credentials(db, project.id)
     if cred is None or cred.platform != "wordpress" or not cred.site_url:
         raise FixError(
@@ -125,39 +126,37 @@ async def _wp_credentials(
         raise FixError(
             "Stored WordPress credentials could not be decrypted."
         ) from exc
-    return cred.site_url.rstrip("/"), key
+    return cred.site_url.rstrip("/"), key, cred.wp_transport or "rest"
 
 
 async def _wp_request(
     site_url: str,
     key: str,
-    path: str,
+    transport: str,
+    action: str,
     payload: dict[str, Any],
     ok_statuses: tuple[int, ...] = (200,),
 ) -> dict[str, Any]:
-    """POST to a plugin fix endpoint with the Bearer key; return parsed JSON."""
-    namespace = settings.WORDPRESS_API_NAMESPACE.strip("/")
-    endpoint = f"{site_url}/wp-json/{namespace}{path}"
+    """POST to a plugin action over the stored transport; return parsed JSON.
+
+    ``action`` is canonical ("snapshot" | "apply_fix" | "revert"); the URL and
+    auth (Bearer header vs rankpilot_key param) are built by wordpress_service
+    so REST and admin-ajax callers never diverge.
+    """
+    url, headers = wordpress_service.build_wp_request(
+        site_url, action, transport, key
+    )
     try:
         async with httpx.AsyncClient(
             timeout=settings.WORDPRESS_CONNECT_TIMEOUT
         ) as client:
-            resp = await client.post(
-                endpoint,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    # Browser-like UA so hosts/WAFs/CDNs don't block the call.
-                    "User-Agent": _WP_USER_AGENT,
-                    "Accept": "application/json",
-                },
-            )
+            resp = await client.post(url, json=payload, headers=headers)
     except httpx.HTTPError as exc:
         raise FixError(f"Could not reach the WordPress plugin: {exc}") from exc
 
     if resp.status_code not in ok_statuses:
         detail = _wp_error_detail(resp)
-        raise FixError(f"WordPress plugin error on {path}: {detail}")
+        raise FixError(f"WordPress plugin error on {action}: {detail}")
     return resp.json()
 
 
@@ -240,7 +239,7 @@ async def _wordpress_fix_all(
     apply-fix each. Records every plugin change id so the whole set is
     revertible.
     """
-    site_url, key = await _wp_credentials(db, project)
+    site_url, key, transport = await _wp_credentials(db, project)
     report = baseline.report_json if baseline is not None else None
     plan = _wordpress_fix_plan(report, url)
 
@@ -251,14 +250,14 @@ async def _wordpress_fix_all(
         target = instr["target"]
         try:
             snap = await _wp_request(
-                site_url, key, "/snapshot",
+                site_url, key, transport, "snapshot",
                 {"change_type": change_type, "target": target},
             )
             change_id = snap.get("change_id")
             if change_id is None:
-                raise FixError("/snapshot did not return a change_id.")
+                raise FixError("snapshot did not return a change_id.")
             result = await _wp_request(
-                site_url, key, "/apply-fix",
+                site_url, key, transport, "apply_fix",
                 {"change_id": change_id, "fix_type": change_type},
             )
             applied.append(
@@ -308,7 +307,7 @@ async def _wordpress_revert(
     db: AsyncSession, project: Project, change: ChangeLog
 ) -> FixHandlerResult:
     """Revert every plugin change recorded for this ChangeLog row."""
-    site_url, key = await _wp_credentials(db, project)
+    site_url, key, transport = await _wp_credentials(db, project)
     change_ids = [
         piece.strip()
         for piece in (change.external_change_id or "").split(",")
@@ -322,7 +321,7 @@ async def _wordpress_revert(
     for change_id in change_ids:
         # 409 = already reverted on the WP side — treat as success (idempotent).
         await _wp_request(
-            site_url, key, "/revert", {"change_id": int(change_id)},
+            site_url, key, transport, "revert", {"change_id": int(change_id)},
             ok_statuses=(200, 409),
         )
 
@@ -436,16 +435,16 @@ async def _wordpress_technical_apply(
     db: AsyncSession, project: Project, fix_type: str, target: str, data: dict
 ) -> FixHandlerResult:
     """Snapshot + apply-fix one technical fix via the RankPilot Connector plugin."""
-    site_url, key = await _wp_credentials(db, project)
+    site_url, key, transport = await _wp_credentials(db, project)
     snap = await _wp_request(
-        site_url, key, "/snapshot",
+        site_url, key, transport, "snapshot",
         {"change_type": fix_type, "target": target, "data": data},
     )
     change_id = snap.get("change_id")
     if change_id is None:
-        raise FixError("/snapshot did not return a change_id.")
+        raise FixError("snapshot did not return a change_id.")
     result = await _wp_request(
-        site_url, key, "/apply-fix",
+        site_url, key, transport, "apply_fix",
         {"change_id": change_id, "fix_type": fix_type},
     )
     return FixHandlerResult(

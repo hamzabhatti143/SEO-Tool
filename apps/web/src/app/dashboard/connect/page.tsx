@@ -224,11 +224,20 @@ function ConnectedCard({
         </div>
       </CardHeader>
       <CardContent className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {connection.connected_at
-            ? `Connected ${new Date(connection.connected_at).toLocaleString()}`
-            : "Connection saved."}
-        </p>
+        <div className="space-y-0.5">
+          <p className="text-sm text-muted-foreground">
+            {connection.connected_at
+              ? `Connected ${new Date(connection.connected_at).toLocaleString()}`
+              : "Connection saved."}
+          </p>
+          {connection.platform === "wordpress" &&
+            connection.wp_transport === "ajax" && (
+              <p className="text-xs text-amber-600">
+                Connected via admin-ajax fallback (your site doesn&apos;t route
+                /wp-json/ — this still works, but fixing REST is recommended).
+              </p>
+            )}
+        </div>
         <Button variant="outline" size="sm" onClick={onDisconnect}>
           Disconnect
         </Button>
@@ -261,12 +270,18 @@ function WordPressForm({
   const [siteUrl, setSiteUrl] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  // The backend tries REST first, then the admin-ajax fallback in the same
+  // request. If it's taking a moment, surface that a fallback is being tried
+  // rather than leaving the user staring at a stalled "Testing…".
+  const [tryingFallback, setTryingFallback] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setTryingFallback(false);
     setError(null);
+    const fallbackTimer = setTimeout(() => setTryingFallback(true), 2500);
     try {
       const cred = await api.connectWordPress({
         project_id: projectId,
@@ -277,7 +292,9 @@ function WordPressForm({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Connection failed");
     } finally {
+      clearTimeout(fallbackTimer);
       setBusy(false);
+      setTryingFallback(false);
     }
   }
 
@@ -321,7 +338,11 @@ function WordPressForm({
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" disabled={busy}>
               {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {busy ? "Testing connection…" : "Test & connect"}
+              {busy
+                ? tryingFallback
+                  ? "Trying fallback connection method…"
+                  : "Testing connection…"
+                : "Test & connect"}
             </Button>
           </form>
         </CardContent>

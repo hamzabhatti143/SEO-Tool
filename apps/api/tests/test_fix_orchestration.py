@@ -81,14 +81,16 @@ def _patch_wp(monkeypatch):
     counter = {"n": 0}
 
     async def fake_creds(_db, _project):
-        return ("https://wp.example", "APIKEY")
+        return ("https://wp.example", "APIKEY", "rest")
 
-    async def fake_request(_site, _key, path, payload, ok_statuses=(200,)):
-        calls.append((path, payload))
-        if path == "/snapshot":
+    async def fake_request(
+        _site, _key, _transport, action, payload, ok_statuses=(200,)
+    ):
+        calls.append((action, payload))
+        if action == "snapshot":
             counter["n"] += 1
             return {"change_id": counter["n"], "status": "snapshotted"}
-        if path == "/apply-fix":
+        if action == "apply_fix":
             return {
                 "change_id": payload["change_id"],
                 "status": "applied",
@@ -123,8 +125,8 @@ async def test_fix_all_wordpress_calls_plugin_and_logs(monkeypatch) -> None:
     assert change.status == "applied"
     assert change.after_snapshot["changes"][0]["after"] == "AFTER"
     assert change in db.added
-    # /snapshot first, then /apply-fix.
-    assert [path for path, _ in calls] == ["/snapshot", "/apply-fix"]
+    # snapshot first, then apply_fix.
+    assert [action for action, _ in calls] == ["snapshot", "apply_fix"]
 
 
 def test_wordpress_fix_plan_from_issues() -> None:
@@ -266,7 +268,7 @@ async def test_revert_flips_status_and_rescans(monkeypatch) -> None:
     assert result.change.status == "reverted"
     assert result.change.cwv_score_after == 90.0
     assert result.rescan_status == "completed"
-    assert ("/revert", {"change_id": 42}) in calls
+    assert ("revert", {"change_id": 42}) in calls
 
 
 async def test_revert_rejects_already_reverted(monkeypatch) -> None:

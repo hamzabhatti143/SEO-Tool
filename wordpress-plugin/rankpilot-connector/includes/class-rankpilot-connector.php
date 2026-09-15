@@ -29,6 +29,14 @@ class RankPilot_Connector {
 	private $rest;
 
 	/**
+	 * admin-ajax.php fallback controller (used when /wp-json/ can't be
+	 * reached - see class-rankpilot-connector-ajax.php).
+	 *
+	 * @var RankPilot_Connector_Ajax
+	 */
+	private $ajax;
+
+	/**
 	 * Admin screen controller.
 	 *
 	 * @var RankPilot_Connector_Admin
@@ -52,6 +60,7 @@ class RankPilot_Connector {
 	 */
 	private function __construct() {
 		$this->rest  = new RankPilot_Connector_REST();
+		$this->ajax  = new RankPilot_Connector_Ajax();
 		$this->admin = new RankPilot_Connector_Admin();
 		// Create/upgrade the changes table for sites updated in place (not just
 		// on fresh activation).
@@ -66,6 +75,9 @@ class RankPilot_Connector {
 	 */
 	private function register_hooks() {
 		add_action( 'rest_api_init', array( $this->rest, 'register_routes' ) );
+		// Fallback transport - reachable even when /wp-json/ isn't (see
+		// class-rankpilot-connector-ajax.php for why).
+		add_action( 'init', array( $this->ajax, 'register' ) );
 
 		// Front-end: apply the defer_css fix to any deferred stylesheet handles
 		// or URLs (3rd arg is the href).

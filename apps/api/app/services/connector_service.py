@@ -26,6 +26,7 @@ async def upsert_credentials(
     secret: str,
     site_url: str | None,
     status: str = "connected",
+    wp_transport: str | None = None,
 ) -> Credentials:
     """Create or replace the project's connection and persist it."""
     existing = (
@@ -44,6 +45,7 @@ async def upsert_credentials(
     existing.platform = platform
     existing.encrypted_api_key_or_token = encrypted
     existing.site_url = site_url
+    existing.wp_transport = wp_transport
     existing.status = status
     existing.connected_at = now if status == "connected" else existing.connected_at
 

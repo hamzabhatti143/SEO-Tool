@@ -38,6 +38,9 @@ class Credentials(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     encrypted_api_key_or_token: Mapped[str] = mapped_column(Text, nullable=False)
     # WordPress site URL or Shopify shop domain (e.g. shop.myshopify.com).
     site_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Which WordPress transport verified/should be used for plugin calls:
+    # "rest" (/wp-json/) or "ajax" (admin-ajax.php fallback). NULL for Shopify.
+    wp_transport: Mapped[str | None] = mapped_column(String(10), nullable=True)
     connected_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

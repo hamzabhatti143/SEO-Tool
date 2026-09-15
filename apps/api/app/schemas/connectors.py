@@ -26,6 +26,8 @@ class CredentialsRead(BaseModel):
     project_id: uuid.UUID
     platform: Platform
     site_url: str | None = None
+    # "rest" or "ajax" for WordPress (which transport is in use); null otherwise.
+    wp_transport: str | None = None
     status: ConnectionStatus
     connected_at: datetime | None = None
     created_at: datetime

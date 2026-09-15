@@ -67,6 +67,9 @@ export interface Credentials {
   project_id: string;
   platform: Platform;
   site_url: string | null;
+  // WordPress transport in use: "rest" (/wp-json/) or "ajax" (admin-ajax
+  // fallback). Null for Shopify / older connections.
+  wp_transport: "rest" | "ajax" | null;
   status: ConnectionStatus;
   connected_at: string | null;
   created_at: string;

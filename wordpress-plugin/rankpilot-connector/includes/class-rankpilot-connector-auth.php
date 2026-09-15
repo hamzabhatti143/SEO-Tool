@@ -52,8 +52,12 @@ class RankPilot_Connector_Auth {
 	 * Extract the Bearer token from the current request.
 	 *
 	 * Prefers the parsed REST header, then falls back to raw $_SERVER keys
-	 * because some server configs (e.g. CGI/FastCGI) drop or rename the
-	 * Authorization header.
+	 * because some server configs (e.g. CGI/FastCGI, and some CDN/proxy
+	 * layers) drop or rename the Authorization header. As a last resort,
+	 * accepts the key as a plain request parameter (rankpilot_key) - used
+	 * by the admin-ajax.php fallback transport for hosts where the header
+	 * never survives the trip. Still compared with hash_equals(), so this
+	 * doesn't weaken the check, only where the key is allowed to travel.
 	 *
 	 * @param WP_REST_Request|null $request Optional REST request.
 	 * @return string The token, or '' if none present.
@@ -85,6 +89,20 @@ class RankPilot_Connector_Auth {
 		$header = trim( (string) $header );
 		if ( 0 === stripos( $header, 'bearer ' ) ) {
 			return trim( substr( $header, 7 ) );
+		}
+
+		// Last resort: explicit key parameter (admin-ajax fallback, or a
+		// REST call made with ?rankpilot_key=... when headers are stripped
+		// somewhere upstream).
+		if ( $request instanceof WP_REST_Request ) {
+			$param = $request->get_param( 'rankpilot_key' );
+			if ( is_string( $param ) && '' !== $param ) {
+				return trim( $param );
+			}
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- key-based auth, not cookie auth; value is hash_equals-checked.
+		if ( isset( $_REQUEST['rankpilot_key'] ) ) {
+			return trim( wp_unslash( $_REQUEST['rankpilot_key'] ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash
 		}
 
 		return '';

@@ -35,6 +35,68 @@ def test_wordpress_normalize_site_url() -> None:
         wordpress_service.normalize_site_url("   ")
 
 
+def test_build_wp_endpoint_rest_and_ajax(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "WORDPRESS_API_NAMESPACE", "rankpilot/v1")
+    site = "https://example.com"
+    # REST uses the hyphenated action under /wp-json/{ns}/.
+    assert (
+        wordpress_service.build_wp_endpoint(site, "apply_fix", "rest")
+        == "https://example.com/wp-json/rankpilot/v1/apply-fix"
+    )
+    assert (
+        wordpress_service.build_wp_endpoint(site, "health", "rest")
+        == "https://example.com/wp-json/rankpilot/v1/health"
+    )
+    # AJAX uses admin-ajax.php with the rankpilot_{action} query param.
+    assert (
+        wordpress_service.build_wp_endpoint(site, "apply_fix", "ajax")
+        == "https://example.com/wp-admin/admin-ajax.php?action=rankpilot_apply_fix"
+    )
+    # A trailing slash on the site never doubles up.
+    assert (
+        wordpress_service.build_wp_endpoint(site + "/", "revert", "ajax")
+        == "https://example.com/wp-admin/admin-ajax.php?action=rankpilot_revert"
+    )
+
+
+def test_build_wp_request_auth_by_transport() -> None:
+    # REST carries the key in an Authorization: Bearer header, not the URL.
+    url, headers = wordpress_service.build_wp_request(
+        "https://example.com", "snapshot", "rest", "SECRETKEY"
+    )
+    assert headers["Authorization"] == "Bearer SECRETKEY"
+    assert "rankpilot_key" not in url
+
+    # AJAX carries the key as a rankpilot_key query param, no Authorization.
+    url, headers = wordpress_service.build_wp_request(
+        "https://example.com", "snapshot", "ajax", "SECRETKEY"
+    )
+    assert "Authorization" not in headers
+    assert "action=rankpilot_snapshot" in url
+    assert "rankpilot_key=SECRETKEY" in url
+
+
+async def test_check_connection_falls_back_to_ajax(monkeypatch) -> None:
+    """REST failing should transparently try admin-ajax and report it."""
+    seen: list[str] = []
+
+    async def fake_probe(origin, api_key, transport):
+        seen.append(transport)
+        ok = transport == "ajax"  # REST fails, ajax succeeds
+        return wordpress_service.WordPressHealth(
+            ok=ok,
+            detail="Connected." if ok else "boom",
+            site_url=origin,
+            transport=transport,
+        )
+
+    monkeypatch.setattr(wordpress_service, "_probe_health", fake_probe)
+    health = await wordpress_service.check_connection("example.com", "KEY")
+    assert health.ok is True
+    assert health.transport == "ajax"
+    assert seen == ["rest", "ajax"]  # tried REST first, then the fallback
+
+
 def test_shopify_normalize_shop() -> None:
     assert shopify_service.normalize_shop("My-Store") == "my-store.myshopify.com"
     assert (

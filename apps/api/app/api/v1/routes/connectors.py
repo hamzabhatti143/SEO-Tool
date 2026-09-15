@@ -94,6 +94,7 @@ async def connect_wordpress(
         platform="wordpress",
         secret=payload.api_key,
         site_url=health.site_url,
+        wp_transport=health.transport,
     )
     return cred  # type: ignore[return-value]
 

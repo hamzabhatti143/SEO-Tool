@@ -158,6 +158,43 @@ and reverts cleanly. Reverting a change restores the prior option/meta/content.
 4. In RankPilot, go to **Connect Your Site → WordPress**, enter your site URL
    and paste the key.
 
+## Fallback transport (admin-ajax.php)
+
+The REST routes above only run once a request reaches WordPress's
+`index.php` with permalinks resolved. On some hosts the public site root
+never reaches WordPress at all — a stray static `index.html` in the web
+root, a CDN/reverse-proxy rule, a cached response — even though
+`/wp-admin/` works fine, because files under `/wp-admin/` are requested
+directly and don't depend on WordPress's rewrite layer. `admin-ajax.php`
+is in that same category: a real, always-present file, reachable even
+when `/` and `/wp-json/*` are not.
+
+Every route also exists as an `admin-ajax.php` action with the identical
+JSON contract:
+
+| REST route              | admin-ajax.php equivalent                                    |
+| ------------------------ | ------------------------------------------------------------ |
+| `GET /rankpilot/v1/health`     | `GET/POST admin-ajax.php?action=rankpilot_health`       |
+| `POST /rankpilot/v1/snapshot`  | `POST admin-ajax.php?action=rankpilot_snapshot`          |
+| `POST /rankpilot/v1/apply-fix` | `POST admin-ajax.php?action=rankpilot_apply_fix`         |
+| `POST /rankpilot/v1/revert`    | `POST admin-ajax.php?action=rankpilot_revert`            |
+
+Auth is the same Bearer key. If the `Authorization` header doesn't survive
+the trip (common on some AJAX/CDN setups), pass the key as a
+`rankpilot_key` request parameter instead — still checked with
+`hash_equals()`, so this only changes where the key is allowed to travel,
+not how strictly it's checked.
+
+**Settings → RankPilot** self-tests both transports on page load (an
+internal loopback request, the same check RankPilot's backend would make)
+and shows which one is actually reachable right now, with the exact URL to
+paste into RankPilot's **Connect Your Site** form.
+
+This does not fix a misrouted site root — visitors are still served
+whatever the server/CDN is serving there, which is a hosting-level problem
+outside any plugin's reach — it only gives RankPilot a reliable channel to
+this plugin regardless of that problem.
+
 ## Layout
 
 ```
@@ -166,9 +203,10 @@ rankpilot-connector/
 ├── includes/
 │   ├── class-rankpilot-connector.php             # Hook wiring (singleton)
 │   ├── class-rankpilot-connector-rest.php        # health + fix routes + permission
-│   ├── class-rankpilot-connector-auth.php        # Key storage + Bearer check
+│   ├── class-rankpilot-connector-ajax.php        # admin-ajax.php fallback transport (same contract)
+│   ├── class-rankpilot-connector-auth.php        # Key storage + Bearer/param check
 │   ├── class-rankpilot-connector-fixes.php       # snapshot/apply/revert + changes table
-│   └── class-rankpilot-connector-admin.php       # Settings → RankPilot screen
+│   └── class-rankpilot-connector-admin.php       # Settings → RankPilot screen + self-test
 ├── uninstall.php                                 # Removes the key + drops the table
 └── README.md
 ```
@@ -176,8 +214,12 @@ rankpilot-connector/
 ## Notes
 
 - Some servers strip the `Authorization` header; the plugin also reads
-  `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` and `getallheaders()` as
-  fallbacks. If auth still fails, add this to `.htaccess`:
-  `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1`.
+  `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION`, `getallheaders()`,
+  and a `rankpilot_key` request parameter as fallbacks. If REST auth still
+  fails, add this to `.htaccess`: `SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1`.
+- If `/wp-json/rankpilot/v1/health` isn't reachable at all (not a 401, but
+  a timeout, a 404, or the wrong site's content) the problem is upstream of
+  WordPress — check **Settings → RankPilot** for a self-test, and use the
+  **Fallback endpoint** (admin-ajax.php) shown there instead.
 - The key is stored as a WordPress option and never exposed except on the
   authenticated settings screen. Regenerating invalidates the old key.
