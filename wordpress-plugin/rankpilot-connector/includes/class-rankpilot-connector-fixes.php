@@ -643,10 +643,30 @@ class RankPilot_Connector_Fixes {
 		}
 		$uploads = wp_upload_dir();
 		$path    = str_replace( $uploads['baseurl'], $uploads['basedir'], $src );
-		if ( is_file( $path ) ) {
+		// Only touch the filesystem when the URL actually mapped into /uploads;
+		// otherwise $path is still an http(s) URL and is_file() would warn.
+		if ( $path !== $src && is_file( $path ) ) {
 			$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 			if ( $size ) {
 				return array( (int) $size[0], (int) $size[1] );
+			}
+		}
+
+		// Fallback for local assets outside /uploads (theme/plugin images,
+		// e.g. wp-content/themes/.../feat1.png): map the site-root-relative
+		// URL path to the filesystem under ABSPATH and measure it directly.
+		// Scheme-agnostic so http/https (or a CDN-fronted home) still matches.
+		$strip    = '#^https?://#i';
+		$home_rel = untrailingslashit( preg_replace( $strip, '', home_url() ) );
+		$src_rel  = preg_replace( $strip, '', (string) strtok( $src, '?' ) );
+		if ( '' !== $home_rel && 0 === strpos( $src_rel, $home_rel ) ) {
+			$rel = ltrim( substr( $src_rel, strlen( $home_rel ) ), '/' );
+			$fs  = ABSPATH . $rel;
+			if ( is_file( $fs ) ) {
+				$size = @getimagesize( $fs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+				if ( $size ) {
+					return array( (int) $size[0], (int) $size[1] );
+				}
 			}
 		}
 		return null;
