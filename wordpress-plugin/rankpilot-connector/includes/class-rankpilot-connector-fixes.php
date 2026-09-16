@@ -828,6 +828,27 @@ class RankPilot_Connector_Fixes {
 		return preg_replace( '#<script\b#i', '<script defer', $tag, 1 );
 	}
 
+	/**
+	 * Always-on: append `display=swap` to Google Fonts stylesheet URLs so a
+	 * late-loading web font swaps in without an invisible-text period or a
+	 * reflow (a common CLS + FCP culprit). Only touches fonts.googleapis.com
+	 * links that don't already specify a display value; everything else is
+	 * returned untouched, so this is safe to run unconditionally.
+	 *
+	 * @param string $src    The stylesheet URL.
+	 * @param string $handle The stylesheet handle (unused).
+	 * @return string
+	 */
+	public static function filter_font_display_swap( $src, $handle = '' ) {
+		if ( ! is_string( $src ) || false === strpos( $src, 'fonts.googleapis.com' ) ) {
+			return $src;
+		}
+		if ( false !== strpos( $src, 'display=' ) ) {
+			return $src; // Respect an explicit display value.
+		}
+		return $src . ( false === strpos( $src, '?' ) ? '?' : '&' ) . 'display=swap';
+	}
+
 	// --- Technical-SEO fix implementations -------------------------------
 
 	/**

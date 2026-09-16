@@ -97,6 +97,16 @@ class RankPilot_Connector {
 			3
 		);
 
+		// Always-on, universally-safe CLS/FCP win: make Google Fonts swap
+		// instead of blocking/invisible text, so a late web-font doesn't reflow
+		// the layout (a common CLS culprit) and text paints immediately.
+		add_filter(
+			'style_loader_src',
+			array( 'RankPilot_Connector_Fixes', 'filter_font_display_swap' ),
+			10,
+			2
+		);
+
 		// Technical-SEO fixes applied at runtime (managed, revertible):
 		// canonical override, source→final redirects, and forced sitemap.
 		add_action(
