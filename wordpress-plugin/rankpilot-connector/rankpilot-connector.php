@@ -3,7 +3,7 @@
  * Plugin Name:       RankPilot Connector
  * Plugin URI:        https://rankpilot.ai
  * Description:       Connects your WordPress site to RankPilot AI. Exposes a secure REST health-check that RankPilot uses to verify the connection, and manages the API key you paste into RankPilot.
- * Version:           0.2.5
+ * Version:           0.2.6
  * Requires at least: 5.6
  * Requires PHP:      7.4
  * Author:            RankPilot AI
@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // No direct access.
 }
 
-define( 'RANKPILOT_CONNECTOR_VERSION', '0.2.5' );
+define( 'RANKPILOT_CONNECTOR_VERSION', '0.2.6' );
 // Bumped when the wp_rankpilot_changes schema changes (drives migrations).
 // v2: added the `data` column (per-fix parameters for technical-SEO fixes).
 define( 'RANKPILOT_CONNECTOR_DB_VERSION', '2' );

@@ -88,6 +88,15 @@ class RankPilot_Connector {
 			3
 		);
 
+		// Front-end: add `defer` to render-blocking scripts flagged for defer_js
+		// (never jQuery — see filter_defer_js).
+		add_filter(
+			'script_loader_tag',
+			array( 'RankPilot_Connector_Fixes', 'filter_defer_js' ),
+			10,
+			3
+		);
+
 		// Technical-SEO fixes applied at runtime (managed, revertible):
 		// canonical override, source→final redirects, and forced sitemap.
 		add_action(

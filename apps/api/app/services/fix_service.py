@@ -243,20 +243,30 @@ def _wordpress_fix_plan(
             add("image_compression", src)
             image_count += 1
 
-    # Render-blocking stylesheets → defer, but ONLY ones Lighthouse also flags
-    # as largely unused. Deferring a critical (above-the-fold) stylesheet delays
-    # first paint and LOWERS the score, so anything not confirmed unused is left
-    # alone.
+    # Render-blocking resources (Lighthouse reports these under either id).
+    render_blocking: list[str] = []
+    for audit_id in ("render-blocking-resources", "render-blocking-insight"):
+        render_blocking += audits.get(audit_id, {}).get("resource_urls") or []
+
+    # Stylesheets → defer, but ONLY ones Lighthouse also flags as largely
+    # unused. Deferring a critical (above-the-fold) stylesheet delays first
+    # paint and LOWERS the score, so anything not confirmed unused is left alone.
     unused_css = {
         href.split("?", 1)[0]
         for href in audits.get("unused-css-rules", {}).get("resource_urls") or []
     }
-    for href in audits.get("render-blocking-resources", {}).get(
-        "resource_urls"
-    ) or []:
+    for href in render_blocking:
         base = href.split("?", 1)[0]
         if base.lower().endswith(".css") and base in unused_css:
             add("defer_css", href)
+
+    # Scripts → defer to unblock first paint (often the biggest CWV lever). Never
+    # jQuery: inline scripts depend on it synchronously and deferring it breaks
+    # themes (the plugin guards this too). Fully revertible.
+    for href in render_blocking:
+        base = href.split("?", 1)[0]
+        if base.lower().endswith(".js") and "jquery" not in base.lower():
+            add("defer_js", href)
 
     # Lazy-load images when the page has image issues — but never the LCP image
     # (the plugin also always skips the first image). Passing the LCP URL lets

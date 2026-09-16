@@ -40,6 +40,7 @@ class RankPilot_Connector_Fixes {
 
 	const TABLE           = 'rankpilot_changes';
 	const DEFER_OPTION    = 'rankpilot_connector_deferred_handles';
+	const DEFER_JS_OPTION = 'rankpilot_connector_deferred_js';
 	const REDIRECTS_OPTION = 'rankpilot_connector_redirects';
 	const SITEMAP_OPTION  = 'rankpilot_connector_force_sitemap';
 	const CANONICAL_META  = '_rankpilot_canonical';
@@ -48,6 +49,7 @@ class RankPilot_Connector_Fixes {
 		'image_compression',
 		'lazy_load',
 		'defer_css',
+		'defer_js',
 		'font_display',
 		'image_dimensions',
 		// Technical SEO (auto-confidence only).
@@ -320,6 +322,11 @@ class RankPilot_Connector_Fixes {
 					array( 'deferred' => in_array( $target, self::deferred_handles(), true ) )
 				);
 
+			case 'defer_js':
+				return wp_json_encode(
+					array( 'deferred' => in_array( $target, self::deferred_js_handles(), true ) )
+				);
+
 			case 'font_display':
 				$path = self::resolve_css_path( $target );
 				if ( is_wp_error( $path ) ) {
@@ -384,6 +391,9 @@ class RankPilot_Connector_Fixes {
 			case 'defer_css':
 				self::set_deferred_handles( array_merge( self::deferred_handles(), array( $target ) ) );
 				return wp_json_encode( array( 'deferred' => true ) );
+			case 'defer_js':
+				self::set_deferred_js_handles( array_merge( self::deferred_js_handles(), array( $target ) ) );
+				return wp_json_encode( array( 'deferred' => true ) );
 			case 'font_display':
 				return self::apply_font_display( $target );
 
@@ -442,6 +452,11 @@ class RankPilot_Connector_Fixes {
 			case 'defer_css':
 				self::set_deferred_handles(
 					array_diff( self::deferred_handles(), array( $target ) )
+				);
+				return true;
+			case 'defer_js':
+				self::set_deferred_js_handles(
+					array_diff( self::deferred_js_handles(), array( $target ) )
 				);
 				return true;
 
@@ -769,6 +784,48 @@ class RankPilot_Connector_Fixes {
 			);
 		}
 		return $deferred . '<noscript>' . $tag . '</noscript>';
+	}
+
+	// --- defer_js runtime filter -----------------------------------------
+
+	private static function deferred_js_handles() {
+		$value = get_option( self::DEFER_JS_OPTION, array() );
+		return is_array( $value ) ? $value : array();
+	}
+
+	private static function set_deferred_js_handles( $handles ) {
+		update_option( self::DEFER_JS_OPTION, array_values( array_unique( $handles ) ), false );
+	}
+
+	/**
+	 * Front-end filter: add `defer` to render-blocking scripts the backend
+	 * flagged (by handle or src URL). Hooked to script_loader_tag.
+	 *
+	 * SAFETY: jQuery (and jQuery Migrate) are never deferred — countless inline
+	 * scripts depend on $ being available synchronously, so deferring it is the
+	 * classic way to break a theme. Scripts already async/deferred are left as
+	 * is. Fully revertible (revert removes the handle from the option).
+	 *
+	 * @param string $tag    The <script> tag HTML.
+	 * @param string $handle The script handle.
+	 * @param string $src    The script URL.
+	 * @return string
+	 */
+	public static function filter_defer_js( $tag, $handle, $src = '' ) {
+		$targets = self::deferred_js_handles();
+		if ( ! in_array( $handle, $targets, true ) && ! in_array( $src, $targets, true ) ) {
+			return $tag;
+		}
+		// Never defer jQuery — inline scripts depend on it synchronously.
+		$probe = strtolower( (string) $handle . ' ' . (string) $src );
+		if ( false !== strpos( $probe, 'jquery' ) ) {
+			return $tag;
+		}
+		// Leave scripts that are already async/deferred (or inline, no src).
+		if ( '' === (string) $src || preg_match( '#\s(defer|async)\b#i', $tag ) ) {
+			return $tag;
+		}
+		return preg_replace( '#<script\b#i', '<script defer', $tag, 1 );
 	}
 
 	// --- Technical-SEO fix implementations -------------------------------

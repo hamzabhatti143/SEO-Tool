@@ -218,6 +218,35 @@ def test_wordpress_fix_plan_passes_flagged_images() -> None:
     ]
 
 
+def test_wordpress_fix_plan_defers_render_blocking_js_not_jquery() -> None:
+    report = {
+        "categories": {
+            "performance": {
+                "insights": [
+                    {
+                        "id": "render-blocking-insight",
+                        "resource_urls": [
+                            "https://x/theme.js",
+                            "https://x/wp-includes/js/jquery/jquery.min.js",
+                            "https://x/style.css",
+                        ],
+                    }
+                ],
+                "diagnostics": [],
+            }
+        }
+    }
+    plan = fix_service._wordpress_fix_plan(report, "https://x/page")
+    pairs = {(p["change_type"], p["target"]) for p in plan}
+    assert ("defer_js", "https://x/theme.js") in pairs
+    # jQuery is never deferred (breaks themes).
+    assert not any(
+        ct == "defer_js" and "jquery" in t.lower() for ct, t in pairs
+    )
+    # CSS isn't deferred as JS.
+    assert ("defer_js", "https://x/style.css") not in pairs
+
+
 def test_wordpress_fix_plan_falls_back_to_lazy_load() -> None:
     assert fix_service._wordpress_fix_plan(None, "https://x/p") == [
         {"change_type": "lazy_load", "target": "https://x/p"}
