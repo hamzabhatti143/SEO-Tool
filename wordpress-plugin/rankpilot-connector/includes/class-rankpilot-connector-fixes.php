@@ -378,9 +378,9 @@ class RankPilot_Connector_Fixes {
 			case 'image_compression':
 				return self::apply_image_compression( $target );
 			case 'lazy_load':
-				return self::apply_content_change( $target, 'add_lazy_load' );
+				return self::apply_content_change( $target, 'add_lazy_load', $data );
 			case 'image_dimensions':
-				return self::apply_content_change( $target, 'add_image_dimensions' );
+				return self::apply_content_change( $target, 'add_image_dimensions', $data );
 			case 'defer_css':
 				self::set_deferred_handles( array_merge( self::deferred_handles(), array( $target ) ) );
 				return wp_json_encode( array( 'deferred' => true ) );
@@ -533,12 +533,12 @@ class RankPilot_Connector_Fixes {
 	 * @param string $transform Static method name applied to post_content.
 	 * @return string|WP_Error  New content, or an error.
 	 */
-	private static function apply_content_change( $target, $transform ) {
+	private static function apply_content_change( $target, $transform, $data = array() ) {
 		$post = self::resolve_post( $target );
 		if ( is_wp_error( $post ) ) {
 			return $post;
 		}
-		$new = call_user_func( array( __CLASS__, $transform ), (string) $post->post_content );
+		$new = call_user_func( array( __CLASS__, $transform ), (string) $post->post_content, $data );
 		$result = wp_update_post(
 			array(
 				'ID'           => $post->ID,
@@ -568,13 +568,42 @@ class RankPilot_Connector_Fixes {
 		return $new;
 	}
 
-	private static function add_lazy_load( $html ) {
+	private static function add_lazy_load( $html, $data = array() ) {
+		// Never lazy-load the LCP / above-the-fold hero image — doing so delays
+		// the largest paint and LOWERS the performance score. We skip (a) the
+		// first <img> in the content (the most likely above-the-fold image) and
+		// (b) any image the backend flagged as the LCP element via data.lcp_url.
+		$skip = array();
+		if ( isset( $data['lcp_url'] ) && is_string( $data['lcp_url'] ) && '' !== $data['lcp_url'] ) {
+			$skip[] = $data['lcp_url'];
+		}
+		if ( isset( $data['skip_urls'] ) && is_array( $data['skip_urls'] ) ) {
+			foreach ( $data['skip_urls'] as $u ) {
+				if ( is_string( $u ) && '' !== $u ) {
+					$skip[] = $u;
+				}
+			}
+		}
+
+		$index = 0;
 		return preg_replace_callback(
 			'#<img\b[^>]*>#i',
-			function ( $m ) {
+			function ( $m ) use ( &$index, $skip ) {
 				$tag = $m[0];
+				$i   = $index;
+				++$index;
 				if ( preg_match( '#\sloading\s*=#i', $tag ) ) {
-					return $tag;
+					return $tag; // Respect an existing loading attribute.
+				}
+				if ( 0 === $i ) {
+					return $tag; // First image: assume above-the-fold / LCP.
+				}
+				if ( $skip && preg_match( '#\ssrc\s*=\s*["\']([^"\']+)["\']#i', $tag, $s ) ) {
+					foreach ( $skip as $u ) {
+						if ( false !== strpos( $s[1], $u ) || false !== strpos( $u, $s[1] ) ) {
+							return $tag; // Flagged LCP image: don't lazy-load.
+						}
+					}
 				}
 				return preg_replace( '#<img\b#i', '<img loading="lazy"', $tag, 1 );
 			},
@@ -582,7 +611,7 @@ class RankPilot_Connector_Fixes {
 		);
 	}
 
-	private static function add_image_dimensions( $html ) {
+	private static function add_image_dimensions( $html, $data = array() ) {
 		return preg_replace_callback(
 			'#<img\b[^>]*>#i',
 			function ( $m ) {

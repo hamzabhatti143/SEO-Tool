@@ -17,6 +17,7 @@ exposes its endpoints — the orchestration flow is identical for both.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -160,13 +161,28 @@ async def _wp_request(
     return resp.json()
 
 
+def _lcp_image_url(report: dict[str, Any] | None) -> str | None:
+    """Extract the LCP element's image URL from a scan report, if it's an image.
+
+    ``report['lcp_element']`` is the Lighthouse largest-contentful-paint-element
+    snippet (e.g. ``<img ... src="...">``). Returns the src URL, or None when
+    the LCP isn't an image (text/background) or no snippet is present.
+    """
+    snippet = (report or {}).get("lcp_element")
+    if not isinstance(snippet, str):
+        return None
+    m = re.search(r"""src\s*=\s*["']([^"']+)["']""", snippet)
+    return m.group(1) if m else None
+
+
 def _wordpress_fix_plan(
     report: dict[str, Any] | None, page_url: str
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Turn a scan's detected performance audits into plugin fix instructions.
 
-    Each instruction is ``{"change_type": ..., "target": ...}``. Falls back to a
-    single safe lazy_load when there's no scan or no mappable issue.
+    Each instruction is ``{"change_type": ..., "target": ...}`` (plus an
+    optional ``data`` dict). Falls back to a single safe lazy_load when there's
+    no scan or no mappable issue.
     """
     audits: dict[str, dict[str, Any]] = {}
     perf = ((report or {}).get("categories") or {}).get("performance") or {}
@@ -175,14 +191,17 @@ def _wordpress_fix_plan(
             if isinstance(item, dict) and item.get("id"):
                 audits[item["id"]] = item
 
-    plan: list[dict[str, str]] = []
+    plan: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
 
-    def add(change_type: str, target: str) -> None:
+    def add(change_type: str, target: str, data: dict | None = None) -> None:
         key = (change_type, target)
         if target and key not in seen:
             seen.add(key)
-            plan.append({"change_type": change_type, "target": target})
+            instr: dict[str, Any] = {"change_type": change_type, "target": target}
+            if data:
+                instr["data"] = data
+            plan.append(instr)
 
     # Page-level content fixes.
     if "unsized-images" in audits:
@@ -201,16 +220,27 @@ def _wordpress_fix_plan(
             add("image_compression", src)
             image_count += 1
 
-    # Render-blocking stylesheets → defer (CSS only; JS defer isn't supported).
+    # Render-blocking stylesheets → defer, but ONLY ones Lighthouse also flags
+    # as largely unused. Deferring a critical (above-the-fold) stylesheet delays
+    # first paint and LOWERS the score, so anything not confirmed unused is left
+    # alone.
+    unused_css = {
+        href.split("?", 1)[0]
+        for href in audits.get("unused-css-rules", {}).get("resource_urls") or []
+    }
     for href in audits.get("render-blocking-resources", {}).get(
         "resource_urls"
     ) or []:
-        if href.split("?", 1)[0].lower().endswith(".css"):
+        base = href.split("?", 1)[0]
+        if base.lower().endswith(".css") and base in unused_css:
             add("defer_css", href)
 
-    # Lazy-load below-the-fold images when the page has image issues.
+    # Lazy-load images when the page has image issues — but never the LCP image
+    # (the plugin also always skips the first image). Passing the LCP URL lets
+    # the plugin exclude that exact image even if it isn't first in the content.
     if audits.keys() & _IMAGE_AUDITS:
-        add("lazy_load", page_url)
+        lcp_url = _lcp_image_url(report)
+        add("lazy_load", page_url, {"lcp_url": lcp_url} if lcp_url else None)
 
     if not plan:
         add(_WORDPRESS_FALLBACK_FIX, page_url)
@@ -248,10 +278,17 @@ async def _wordpress_fix_all(
     for instr in plan:
         change_type = instr["change_type"]
         target = instr["target"]
+        # data (e.g. lcp_url for lazy_load) is stored at snapshot time and used
+        # by the plugin's apply step, so it must travel on the snapshot call.
+        snapshot_payload: dict[str, Any] = {
+            "change_type": change_type,
+            "target": target,
+        }
+        if instr.get("data"):
+            snapshot_payload["data"] = instr["data"]
         try:
             snap = await _wp_request(
-                site_url, key, transport, "snapshot",
-                {"change_type": change_type, "target": target},
+                site_url, key, transport, "snapshot", snapshot_payload
             )
             change_id = snap.get("change_id")
             if change_id is None:

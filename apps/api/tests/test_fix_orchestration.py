@@ -141,7 +141,17 @@ def test_wordpress_fix_plan_from_issues() -> None:
                     },
                     {
                         "id": "render-blocking-resources",
-                        "resource_urls": ["https://x/app.css", "https://x/lib.js"],
+                        # app.css is confirmed unused (safe to defer); theme.css
+                        # is render-blocking but NOT unused → critical, keep it.
+                        "resource_urls": [
+                            "https://x/app.css",
+                            "https://x/theme.css",
+                            "https://x/lib.js",
+                        ],
+                    },
+                    {
+                        "id": "unused-css-rules",
+                        "resource_urls": ["https://x/app.css"],
                     },
                 ],
                 "diagnostics": [{"id": "font-display"}],
@@ -154,11 +164,30 @@ def test_wordpress_fix_plan_from_issues() -> None:
     assert ("font_display", "style.css") in pairs
     assert ("image_compression", "https://x/a.jpg") in pairs
     assert ("image_compression", "https://x/b.jpg") in pairs
+    # Only the confirmed-unused stylesheet is deferred.
     assert ("defer_css", "https://x/app.css") in pairs
+    # Critical (render-blocking but not unused) stylesheet is NOT deferred.
+    assert ("defer_css", "https://x/theme.css") not in pairs
     # JS render-blocking resources are not deferrable via defer_css.
     assert ("defer_css", "https://x/lib.js") not in pairs
     # Image issues present → lazy-load the page too.
     assert ("lazy_load", "https://x/page") in pairs
+
+
+def test_wordpress_fix_plan_excludes_lcp_image_from_lazy_load() -> None:
+    report = {
+        "lcp_element": '<img src="https://x/hero.png" class="hero">',
+        "categories": {
+            "performance": {
+                "insights": [{"id": "unsized-images"}],
+                "diagnostics": [],
+            }
+        },
+    }
+    plan = fix_service._wordpress_fix_plan(report, "https://x/page")
+    lazy = next(p for p in plan if p["change_type"] == "lazy_load")
+    # The LCP image URL is passed so the plugin can exclude it from lazy-load.
+    assert lazy["data"]["lcp_url"] == "https://x/hero.png"
 
 
 def test_wordpress_fix_plan_falls_back_to_lazy_load() -> None:
