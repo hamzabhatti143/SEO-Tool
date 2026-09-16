@@ -190,6 +190,34 @@ def test_wordpress_fix_plan_excludes_lcp_image_from_lazy_load() -> None:
     assert lazy["data"]["lcp_url"] == "https://x/hero.png"
 
 
+def test_wordpress_fix_plan_passes_flagged_images() -> None:
+    """Scan-flagged image URLs ride along so the plugin can fail loud."""
+    report = {
+        "categories": {
+            "performance": {
+                "insights": [
+                    {"id": "unsized-images", "resource_urls": ["https://x/a.jpg"]},
+                    {
+                        "id": "uses-optimized-images",
+                        "resource_urls": ["https://x/b.jpg"],
+                    },
+                ],
+                "diagnostics": [],
+            }
+        }
+    }
+    plan = fix_service._wordpress_fix_plan(report, "https://x/page")
+    by_type = {p["change_type"]: p for p in plan}
+    assert by_type["image_dimensions"]["data"]["flagged_urls"] == [
+        "https://x/a.jpg",
+        "https://x/b.jpg",
+    ]
+    assert by_type["lazy_load"]["data"]["flagged_urls"] == [
+        "https://x/a.jpg",
+        "https://x/b.jpg",
+    ]
+
+
 def test_wordpress_fix_plan_falls_back_to_lazy_load() -> None:
     assert fix_service._wordpress_fix_plan(None, "https://x/p") == [
         {"change_type": "lazy_load", "target": "https://x/p"}

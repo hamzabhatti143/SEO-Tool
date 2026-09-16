@@ -203,9 +203,32 @@ def _wordpress_fix_plan(
                 instr["data"] = data
             plan.append(instr)
 
+    # Images the scan flagged (unsized / unoptimized / poorly delivered). These
+    # travel with the content fixes so the plugin can verify they're actually in
+    # post content and FAIL LOUD (instead of silently succeeding) when they're
+    # theme/Customizer-rendered — the common reason a fix "applies" yet the
+    # issue reappears on re-scan.
+    flagged_images: list[str] = []
+    for audit_id in (
+        "unsized-images",
+        "uses-optimized-images",
+        "modern-image-formats",
+        "image-delivery-insight",
+        "image-delivery",
+        "prioritize-lcp-image",
+    ):
+        for src in audits.get(audit_id, {}).get("resource_urls") or []:
+            if src not in flagged_images:
+                flagged_images.append(src)
+    flagged_images = flagged_images[:20]
+
     # Page-level content fixes.
     if "unsized-images" in audits:
-        add("image_dimensions", page_url)
+        add(
+            "image_dimensions",
+            page_url,
+            {"flagged_urls": flagged_images} if flagged_images else None,
+        )
     if "font-display" in audits:
         # Best-effort: the theme's main stylesheet (the plugin no-ops if it has
         # no @font-face). Target is theme-relative and validated plugin-side.
@@ -240,7 +263,12 @@ def _wordpress_fix_plan(
     # the plugin exclude that exact image even if it isn't first in the content.
     if audits.keys() & _IMAGE_AUDITS:
         lcp_url = _lcp_image_url(report)
-        add("lazy_load", page_url, {"lcp_url": lcp_url} if lcp_url else None)
+        lazy_data: dict[str, Any] = {}
+        if lcp_url:
+            lazy_data["lcp_url"] = lcp_url
+        if flagged_images:
+            lazy_data["flagged_urls"] = flagged_images
+        add("lazy_load", page_url, lazy_data or None)
 
     if not plan:
         add(_WORDPRESS_FALLBACK_FIX, page_url)

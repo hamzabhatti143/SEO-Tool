@@ -538,7 +538,47 @@ class RankPilot_Connector_Fixes {
 		if ( is_wp_error( $post ) ) {
 			return $post;
 		}
-		$new = call_user_func( array( __CLASS__, $transform ), (string) $post->post_content, $data );
+		$content = (string) $post->post_content;
+
+		// FAIL LOUD: these transforms only edit <img> tags stored in post
+		// content. If the page body has no images — or none of the images the
+		// scan flagged are here — the flagged images are rendered by the theme
+		// template / Customizer (header, slider, blog-card, recent-posts), NOT
+		// stored in post content, so this fix cannot reach them. Reporting
+		// success would hide a real no-op, so we return an explicit error.
+		if ( 0 === (int) preg_match_all( '#<img\b#i', $content ) ) {
+			return self::error(
+				'no_target_in_content',
+				"No <img> found in this page's content. The flagged images are output by the theme template or Customizer (e.g. header/slider/blog-card images), not stored in post content, so this fix can't reach them.",
+				422
+			);
+		}
+		if ( ! empty( $data['flagged_urls'] ) && is_array( $data['flagged_urls'] ) ) {
+			$present = array();
+			$missing = array();
+			foreach ( $data['flagged_urls'] as $u ) {
+				if ( ! is_string( $u ) || '' === $u ) {
+					continue;
+				}
+				$base = basename( (string) strtok( $u, '?' ) );
+				if ( '' !== $base && false !== strpos( $content, $base ) ) {
+					$present[] = $base;
+				} else {
+					$missing[] = $base;
+				}
+			}
+			// None of the flagged images live in post content → the fix would be
+			// a silent no-op against the real problem. Fail with the specifics.
+			if ( empty( $present ) && ! empty( $missing ) ) {
+				return self::error(
+					'flagged_not_in_content',
+					'None of the scan-flagged images are in this page content — they are theme/Customizer-rendered, not post content. Flagged (not reachable here): ' . implode( ', ', array_slice( $missing, 0, 8 ) ),
+					422
+				);
+			}
+		}
+
+		$new    = call_user_func( array( __CLASS__, $transform ), $content, $data );
 		$result = wp_update_post(
 			array(
 				'ID'           => $post->ID,
@@ -813,7 +853,8 @@ class RankPilot_Connector_Fixes {
 			$target,
 			function ( $content ) use ( $broken, $replacement ) {
 				return self::replace_href( $content, $broken, $replacement );
-			}
+			},
+			"The broken link ($broken) was not found in this page's content — it may be in a menu, widget, or theme template, which this fix can't edit."
 		);
 	}
 
@@ -842,7 +883,8 @@ class RankPilot_Connector_Fixes {
 					}
 				}
 				return $content;
-			}
+			},
+			"None of the insecure (http) resources were found in this page's content — they may be loaded by the theme/Customizer, which this fix can't edit."
 		);
 	}
 
@@ -874,12 +916,23 @@ class RankPilot_Connector_Fixes {
 	 * @param callable $transform fn(string $content): string.
 	 * @return string|WP_Error    New content, or an error.
 	 */
-	private static function apply_content_transform( $target, $transform ) {
+	private static function apply_content_transform( $target, $transform, $not_found_msg = '' ) {
 		$post = self::resolve_post( $target );
 		if ( is_wp_error( $post ) ) {
 			return $post;
 		}
-		$new    = call_user_func( $transform, (string) $post->post_content );
+		$old = (string) $post->post_content;
+		$new = call_user_func( $transform, $old );
+		// FAIL LOUD: if the transform changed nothing, the target element was
+		// not present in post content (likely a menu/widget/theme-template
+		// element), so don't report a silent success.
+		if ( $new === $old ) {
+			return self::error(
+				'no_change',
+				'' !== $not_found_msg ? $not_found_msg : "The target was not found in this page's content, so nothing changed (it may be theme/Customizer-rendered).",
+				422
+			);
+		}
 		$result = wp_update_post( array( 'ID' => $post->ID, 'post_content' => $new ), true );
 		if ( is_wp_error( $result ) ) {
 			return $result;
