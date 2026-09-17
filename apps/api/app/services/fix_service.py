@@ -36,6 +36,7 @@ from app.models.technical_seo import TechnicalSEOIssue
 from app.services import (
     connector_service,
     core_web_vitals_service,
+    media_reserve_service,
     wordpress_service,
 )
 from app.services.core_web_vitals_service import CoreWebVitalsError
@@ -292,6 +293,23 @@ def _wordpress_fix_plan(
     return plan[:_WORDPRESS_MAX_FIXES]
 
 
+def _has_layout_shift(report: dict[str, Any] | None) -> bool:
+    """True when the scan shows meaningful CLS (so media-reserve is worth it)."""
+    if not report:
+        return False
+    cls = (report.get("metrics") or {}).get("cls")
+    if isinstance(cls, int | float) and cls > 0.1:
+        return True
+    perf = (report.get("categories") or {}).get("performance") or {}
+    ids = {
+        item.get("id")
+        for group in ("insights", "diagnostics")
+        for item in (perf.get(group) or [])
+        if isinstance(item, dict)
+    }
+    return bool(ids & {"layout-shifts", "cls-culprits-insight"})
+
+
 def _wp_error_detail(resp: httpx.Response) -> str:
     try:
         body = resp.json()
@@ -316,6 +334,19 @@ async def _wordpress_fix_all(
     site_url, key, transport = await _wp_credentials(db, project)
     report = baseline.report_json if baseline is not None else None
     plan = _wordpress_fix_plan(report, url)
+
+    # reserve_media_dimensions (CLS): when the page has layout shift, detect
+    # rotating-media containers and reserve their size. Separate from
+    # compression — this is the actual CLS lever for carousels/sliders/video.
+    if _has_layout_shift(report):
+        for reserve in await media_reserve_service.fetch_and_detect(url):
+            plan.append(
+                {
+                    "change_type": "reserve_media_dimensions",
+                    "target": reserve["selector"],
+                    "data": reserve["data"],
+                }
+            )
 
     applied: list[dict[str, Any]] = []
     errors: list[str] = []

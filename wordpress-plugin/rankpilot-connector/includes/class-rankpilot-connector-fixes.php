@@ -43,6 +43,7 @@ class RankPilot_Connector_Fixes {
 	const DEFER_JS_OPTION = 'rankpilot_connector_deferred_js';
 	const REDIRECTS_OPTION = 'rankpilot_connector_redirects';
 	const SITEMAP_OPTION  = 'rankpilot_connector_force_sitemap';
+	const RESERVE_OPTION  = 'rankpilot_connector_media_reserve';
 	const CANONICAL_META  = '_rankpilot_canonical';
 	const CHANGE_TYPES    = array(
 		// Core Web Vitals.
@@ -52,6 +53,7 @@ class RankPilot_Connector_Fixes {
 		'defer_js',
 		'font_display',
 		'image_dimensions',
+		'reserve_media_dimensions',
 		// Technical SEO (auto-confidence only).
 		'redirect_chain',
 		'missing_canonical',
@@ -327,6 +329,12 @@ class RankPilot_Connector_Fixes {
 					array( 'deferred' => in_array( $target, self::deferred_js_handles(), true ) )
 				);
 
+			case 'reserve_media_dimensions':
+				$reserve = self::media_reserve_rules();
+				return wp_json_encode(
+					array( 'existing' => isset( $reserve[ $target ] ) ? $reserve[ $target ] : null )
+				);
+
 			case 'font_display':
 				$path = self::resolve_css_path( $target );
 				if ( is_wp_error( $path ) ) {
@@ -394,6 +402,8 @@ class RankPilot_Connector_Fixes {
 			case 'defer_js':
 				self::set_deferred_js_handles( array_merge( self::deferred_js_handles(), array( $target ) ) );
 				return wp_json_encode( array( 'deferred' => true ) );
+			case 'reserve_media_dimensions':
+				return self::apply_media_reserve( $target, $data );
 			case 'font_display':
 				return self::apply_font_display( $target );
 
@@ -458,6 +468,11 @@ class RankPilot_Connector_Fixes {
 				self::set_deferred_js_handles(
 					array_diff( self::deferred_js_handles(), array( $target ) )
 				);
+				return true;
+			case 'reserve_media_dimensions':
+				$reserve = self::media_reserve_rules();
+				unset( $reserve[ $target ] );
+				update_option( self::RESERVE_OPTION, $reserve, false );
 				return true;
 
 			case 'font_display':
@@ -847,6 +862,78 @@ class RankPilot_Connector_Fixes {
 			return $src; // Respect an explicit display value.
 		}
 		return $src . ( false === strpos( $src, '?' ) ? '?' : '&' ) . 'display=swap';
+	}
+
+	// --- reserve_media_dimensions (CLS fix for carousels/sliders/video) --
+
+	private static function media_reserve_rules() {
+		$value = get_option( self::RESERVE_OPTION, array() );
+		return is_array( $value ) ? $value : array();
+	}
+
+	/**
+	 * Store a size-reservation rule for a container selector so it holds its
+	 * final size before any (rotating) media inside it loads — the actual CLS
+	 * fix for carousels/sliders/video, which shift because each frame has a
+	 * different intrinsic size. Pure CSS/structural; NOT compression.
+	 *
+	 * @param string $target Container CSS selector (e.g. ".header-filter").
+	 * @param array  $data   { aspect_ratio: "16/9" } or { min_height: "100vh" }.
+	 * @return string|WP_Error
+	 */
+	private static function apply_media_reserve( $target, $data ) {
+		$target = trim( (string) $target );
+		if ( '' === $target ) {
+			return self::error( 'missing_target', 'A container selector is required.', 400 );
+		}
+		$rule = array();
+		if ( isset( $data['aspect_ratio'] ) && '' !== (string) $data['aspect_ratio'] ) {
+			$rule['aspect_ratio'] = sanitize_text_field( (string) $data['aspect_ratio'] );
+		}
+		if ( isset( $data['min_height'] ) && '' !== (string) $data['min_height'] ) {
+			$rule['min_height'] = sanitize_text_field( (string) $data['min_height'] );
+		}
+		if ( empty( $rule ) ) {
+			return self::error( 'missing_data', 'reserve_media_dimensions needs data.aspect_ratio or data.min_height.', 400 );
+		}
+		$reserve            = self::media_reserve_rules();
+		$reserve[ $target ] = $rule;
+		update_option( self::RESERVE_OPTION, $reserve, false );
+		return wp_json_encode( array( 'selector' => $target, 'rule' => $rule ) );
+	}
+
+	/**
+	 * Front-end (wp_head): print scoped CSS that reserves each configured
+	 * container's size up front. aspect-ratio is preferred; min_height is a
+	 * fallback for full-height heroes. Emitted early so it applies before the
+	 * (rotating) media loads.
+	 *
+	 * @return void
+	 */
+	public static function output_media_reserve() {
+		$reserve = self::media_reserve_rules();
+		if ( empty( $reserve ) ) {
+			return;
+		}
+		$css = '';
+		foreach ( $reserve as $selector => $rule ) {
+			$decls = '';
+			if ( ! empty( $rule['aspect_ratio'] ) ) {
+				$decls .= 'aspect-ratio:' . $rule['aspect_ratio'] . ';';
+			}
+			if ( ! empty( $rule['min_height'] ) ) {
+				$decls .= 'min-height:' . $rule['min_height'] . ';';
+			}
+			if ( '' !== $decls ) {
+				// Stored CSS selector; strip chars that could break out of the
+				// rule/style context.
+				$safe_selector = str_replace( array( '<', '>', '{', '}' ), '', (string) $selector );
+				$css          .= $safe_selector . '{' . $decls . '}';
+			}
+		}
+		if ( '' !== $css ) {
+			echo "\n<style id=\"rankpilot-media-reserve\">" . $css . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
 	}
 
 	// --- Technical-SEO fix implementations -------------------------------

@@ -107,6 +107,14 @@ class RankPilot_Connector {
 			2
 		);
 
+		// reserve_media_dimensions: print size-reservation CSS early in <head>
+		// so carousels/sliders/video hold their size before any frame loads.
+		add_action(
+			'wp_head',
+			array( 'RankPilot_Connector_Fixes', 'output_media_reserve' ),
+			1
+		);
+
 		// Technical-SEO fixes applied at runtime (managed, revertible):
 		// canonical override, source→final redirects, and forced sitemap.
 		add_action(

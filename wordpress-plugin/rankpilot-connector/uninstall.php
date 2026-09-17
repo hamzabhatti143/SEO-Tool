@@ -15,6 +15,7 @@ global $wpdb;
 delete_option( 'rankpilot_connector_api_key' );
 delete_option( 'rankpilot_connector_deferred_handles' );
 delete_option( 'rankpilot_connector_deferred_js' );
+delete_option( 'rankpilot_connector_media_reserve' );
 delete_option( 'rankpilot_connector_db_version' );
 
 // Drop the fix-tracking table. Name is derived from the trusted prefix.
