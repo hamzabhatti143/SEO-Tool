@@ -36,6 +36,7 @@ import uuid
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -49,6 +50,7 @@ from app.schemas.core_web_vitals import (
     ScanMetadata,
     Screenshots,
 )
+from app.services.scan_stability import assess_variance
 
 _PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
@@ -425,9 +427,10 @@ def _median(values: list[float | None], digits: int = 0) -> float | None:
 async def scan_and_store(
     db: AsyncSession, project_id: uuid.UUID, url: str, strategy: str = "mobile"
 ) -> CoreWebVitals:
-    """Run a scan and persist a ``CoreWebVitals`` row."""
+    """Run a scan and persist a ``CoreWebVitals`` row (with variance metadata)."""
     report = await run_pagespeed(url, strategy)
     cats = report.categories
+    score = _cat_score(cats, "performance")
     scan = CoreWebVitals(
         project_id=project_id,
         url=url,
@@ -438,16 +441,70 @@ async def scan_and_store(
         cls=report.metrics.cls,
         speed_index=report.metrics.speed_index,
         field_inp=report.field_inp,
-        performance_score=_cat_score(cats, "performance"),
+        performance_score=score,
         accessibility_score=_cat_score(cats, "accessibility"),
         best_practices_score=_cat_score(cats, "best_practices"),
         seo_score=_cat_score(cats, "seo"),
         report_json=report.model_dump(),
     )
+    await _annotate_variance(db, scan, report, project_id, url)
     db.add(scan)
     await db.commit()
     await db.refresh(scan)
     return scan
+
+
+async def _annotate_variance(
+    db: AsyncSession,
+    scan: CoreWebVitals,
+    report: CoreWebVitalsReport,
+    project_id: uuid.UUID,
+    url: str,
+) -> None:
+    """Set ``high_variance`` + ``scan_run_details`` from this scan's runs plus
+    recent independent scans of the same URL.
+
+    PSI caches within a short window, so this scan's own runs can be identical;
+    the reliable variance signal is the spread across prior independent scans,
+    which we include here.
+    """
+    run_scores = [r.performance_score for r in report.runs]
+    run_cls = [r.cls for r in report.runs]
+
+    recent = (
+        await db.execute(
+            select(CoreWebVitals.performance_score, CoreWebVitals.cls)
+            .where(
+                CoreWebVitals.project_id == project_id,
+                CoreWebVitals.url == url,
+            )
+            .order_by(CoreWebVitals.scanned_at.desc())
+            .limit(settings.STABILITY_HISTORY)
+        )
+    ).all()
+
+    scores = run_scores + [scan.performance_score] + [r[0] for r in recent]
+    cls_values = run_cls + [scan.cls] + [r[1] for r in recent]
+    assessment = assess_variance(
+        scores,
+        cls_values,
+        score_threshold=settings.STABILITY_SCORE_SPREAD,
+        cls_threshold=settings.STABILITY_CLS_SPREAD,
+    )
+    scan.high_variance = assessment.high_variance
+    scan.scan_run_details = {
+        "runs": [
+            {
+                "score": r.performance_score,
+                "cls": r.cls,
+                "lcp": r.lcp,
+            }
+            for r in report.runs
+        ],
+        "score_spread": assessment.score_spread,
+        "cls_spread": assessment.cls_spread,
+        "samples": assessment.samples,
+    }
 
 
 def _cat_score(cats: dict[str, CategoryAudits], key: str) -> float | None:

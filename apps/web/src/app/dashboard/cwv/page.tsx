@@ -231,6 +231,30 @@ export default function CoreWebVitalsPage() {
         </CardContent>
       </Card>
 
+      {scan?.high_variance && (
+        <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-semibold">
+              This page&apos;s score changes between loads
+            </p>
+            <p>
+              Its content changes on each load (likely a rotating slider,
+              carousel, or randomized media), causing natural score/CLS
+              fluctuation independent of any fixes applied. A single before/after
+              number is unreliable here — judge fixes over several scans.
+              {scan.scan_run_details?.score_spread != null && (
+                <>
+                  {" "}Recent spread: score ±
+                  {scan.scan_run_details.score_spread}, CLS ±
+                  {scan.scan_run_details.cls_spread}.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
       {scan && report && (
         <>
           {/* Four category score circles */}
@@ -629,12 +653,30 @@ function BeforeAfter({
   result: FixResponse;
 }) {
   const after = result.new_scan;
+  const verdictStyle =
+    result.verdict === "improved"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : result.verdict === "worsened"
+        ? "border-red-200 bg-red-50 text-destructive"
+        : "border-slate-200 bg-slate-50 text-slate-700";
   return (
     <div className="space-y-4">
       {result.rescan_status !== "completed" && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{result.detail ?? "Fixes applied; re-analysis incomplete."}</span>
+        </div>
+      )}
+      {result.verdict && (
+        <div className={`rounded-md border p-3 text-sm ${verdictStyle}`}>
+          <p className="font-semibold capitalize">
+            {result.verdict === "inconclusive"
+              ? "No conclusive change"
+              : result.verdict}
+          </p>
+          {result.verdict_detail && (
+            <p className="mt-0.5 text-xs opacity-90">{result.verdict_detail}</p>
+          )}
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-4">

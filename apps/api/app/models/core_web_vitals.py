@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,17 @@ class CoreWebVitals(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Full parsed report (see schemas.CoreWebVitalsReport).
     report_json: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
+    )
+
+    # Scan-stability metadata: per-run values + the score/CLS spread across
+    # recent independent scans, and whether this page is high_variance (its
+    # score/CLS swings naturally between loads, e.g. a rotating carousel — so
+    # single-run fix comparisons are misleading). See scan_stability.py.
+    scan_run_details: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    high_variance: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
     )
 
     scanned_at: Mapped[datetime] = mapped_column(

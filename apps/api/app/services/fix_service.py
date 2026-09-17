@@ -39,6 +39,7 @@ from app.services import (
     wordpress_service,
 )
 from app.services.core_web_vitals_service import CoreWebVitalsError
+from app.services.scan_stability import compare_ranges
 
 # The auto/suggest technical-SEO fix types that route to a platform handler
 # (manual-only types like broken_external_link/duplicate_content/orphan_pages
@@ -100,6 +101,11 @@ class OrchestrationResult:
     new_scan: CoreWebVitals | None
     rescan_status: str  # completed | failed | skipped
     detail: str | None = field(default=None)
+    # Range-based verdict (replaces single-run before/after deltas): "improved"
+    # | "worsened" | "inconclusive" — only conclusive when the post-fix value
+    # falls outside the page's recent score/CLS range (see scan_stability.py).
+    verdict: str | None = field(default=None)
+    verdict_detail: str | None = field(default=None)
 
 
 # ---------------------------------------------------------------------------
@@ -644,11 +650,14 @@ async def apply_fix_all(
     await db.commit()
     await db.refresh(change)
 
+    verdict, verdict_detail = await _fix_verdict(db, project.id, url, new_scan)
     return OrchestrationResult(
         change=change,
         new_scan=new_scan,
         rescan_status=rescan_status,
         detail=detail or result.detail,
+        verdict=verdict,
+        verdict_detail=verdict_detail,
     )
 
 
@@ -697,11 +706,14 @@ async def revert_fix(
     await db.commit()
     await db.refresh(change)
 
+    verdict, verdict_detail = await _fix_verdict(db, project.id, url, new_scan)
     return OrchestrationResult(
         change=change,
         new_scan=new_scan,
         rescan_status=rescan_status,
         detail=detail or result.detail,
+        verdict=verdict,
+        verdict_detail=verdict_detail,
     )
 
 
@@ -729,6 +741,59 @@ async def _rescan(
     except CoreWebVitalsError as exc:
         return None, "failed", f"Fix applied, but the re-scan failed: {exc}"
     return scan, "completed", None
+
+
+async def _fix_verdict(
+    db: AsyncSession, project_id: uuid.UUID, url: str, new_scan: CoreWebVitals | None
+) -> tuple[str | None, str | None]:
+    """Range-based verdict comparing the post-fix scan to the page's recent
+    range — replaces misleading single-run deltas. Returns (verdict, detail).
+
+    On a high-variance page the post-fix number usually lands inside the recent
+    range, so the honest verdict is "inconclusive" rather than a fake
+    improved/worsened. Never raises — verdict is advisory.
+    """
+    if new_scan is None:
+        return None, None
+    try:
+        rows = (
+            await db.execute(
+                select(CoreWebVitals.performance_score, CoreWebVitals.cls)
+                .where(
+                    CoreWebVitals.project_id == project_id,
+                    CoreWebVitals.url == url,
+                    CoreWebVitals.id != new_scan.id,
+                )
+                .order_by(CoreWebVitals.scanned_at.desc())
+                .limit(settings.STABILITY_HISTORY)
+            )
+        ).all()
+    except Exception:  # noqa: BLE001 - verdict is advisory, never fatal
+        return None, None
+    before_scores = [r[0] for r in rows]
+    before_cls = [r[1] for r in rows]
+    score_v = compare_ranges(before_scores, [new_scan.performance_score])
+    cls_v = compare_ranges(
+        before_cls, [new_scan.cls], lower_is_better=True
+    )
+
+    if score_v.verdict == "inconclusive" and cls_v.verdict == "inconclusive":
+        return (
+            "inconclusive",
+            "No conclusive change — the post-fix score/CLS are within this "
+            "page's normal variance. Judge over several scans.",
+        )
+    parts = []
+    if score_v.verdict != "inconclusive":
+        parts.append(f"score {score_v.verdict} ({score_v.detail})")
+    if cls_v.verdict != "inconclusive":
+        parts.append(f"CLS {cls_v.verdict} ({cls_v.detail})")
+    overall = (
+        "worsened"
+        if "worsened" in (score_v.verdict, cls_v.verdict)
+        else "improved"
+    )
+    return overall, "; ".join(parts)
 
 
 async def _latest_scan(

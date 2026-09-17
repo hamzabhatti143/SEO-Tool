@@ -94,6 +94,16 @@ class Settings(BaseSettings):
     # Each run is a separate API call (counts against quota).
     PAGESPEED_RUNS: int = 2
 
+    # --- Scan stability (misattribution guard) ---
+    # A page is flagged high_variance when, across recent independent scans, the
+    # Performance-score spread exceeds SCORE_SPREAD or the CLS spread exceeds
+    # CLS_SPREAD. Fix verdicts are then range-based, not single-run deltas, so
+    # natural variance (rotating carousels/sliders) isn't misread as a fix
+    # regression. STABILITY_HISTORY = how many recent same-URL scans to include.
+    STABILITY_SCORE_SPREAD: float = 10.0
+    STABILITY_CLS_SPREAD: float = 0.15
+    STABILITY_HISTORY: int = 5
+
     # Competitor Intelligence: max pages to crawl per site.
     COMPETITOR_MAX_PAGES: int = 40
     # Concurrent page fetches during a crawl (bounded politeness + speed).

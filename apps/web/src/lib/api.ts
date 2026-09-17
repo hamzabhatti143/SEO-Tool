@@ -318,6 +318,15 @@ export interface CoreWebVitals {
   best_practices_score: number | null;
   seo_score: number | null;
   report: CoreWebVitalsReport | null;
+  // This page's score/CLS swings naturally between loads (rotating carousel /
+  // slider / randomized media), so single-run fix comparisons are unreliable.
+  high_variance: boolean;
+  scan_run_details: {
+    runs?: { score: number | null; cls: number | null; lcp: number | null }[];
+    score_spread?: number;
+    cls_spread?: number;
+    samples?: number;
+  } | null;
   scanned_at: string;
   created_at: string;
 }
@@ -346,6 +355,9 @@ export interface FixResponse {
   new_scan: CoreWebVitals | null;
   rescan_status: RescanStatus;
   detail: string | null;
+  // Range-based outcome vs the page's recent variance. Prefer over raw delta.
+  verdict: "improved" | "worsened" | "inconclusive" | null;
+  verdict_detail: string | null;
 }
 
 export type KeywordKind = "related" | "long_tail" | "question";

@@ -49,3 +49,7 @@ class FixResponse(BaseModel):
     new_scan: CoreWebVitalsRead | None = None
     rescan_status: RescanStatus
     detail: str | None = None
+    # Range-based outcome vs the page's recent variance: "improved" |
+    # "worsened" | "inconclusive". Prefer this over the raw score delta.
+    verdict: str | None = None
+    verdict_detail: str | None = None

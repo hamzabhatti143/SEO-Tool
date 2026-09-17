@@ -133,5 +133,11 @@ class CoreWebVitalsRead(BaseModel):
         default=None, validation_alias="report_json"
     )
 
+    # Scan-stability metadata (see scan_stability.py). high_variance = this
+    # page's score/CLS swings naturally between loads, so single-run fix
+    # comparisons are unreliable; the UI shows a banner and uses range verdicts.
+    high_variance: bool = False
+    scan_run_details: dict | None = None
+
     scanned_at: datetime
     created_at: datetime

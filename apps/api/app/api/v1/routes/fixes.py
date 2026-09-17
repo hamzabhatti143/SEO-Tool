@@ -36,6 +36,8 @@ def _to_response(result: OrchestrationResult) -> FixResponse:
         ),
         rescan_status=result.rescan_status,  # type: ignore[arg-type]
         detail=result.detail,
+        verdict=result.verdict,
+        verdict_detail=result.verdict_detail,
     )
 
 
