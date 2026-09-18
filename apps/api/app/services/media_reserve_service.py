@@ -42,7 +42,10 @@ _CAROUSEL_CLASSES: dict[str, str] = {
 _HERO_FALLBACK_CLASSES = frozenset(
     {"header-filter", "carousel-inner", "carousel"}
 )
-_HERO_FALLBACK_MIN_HEIGHT = "60vh"
+# Reserve close to a full-screen hero's real height (measured ~90vh on the
+# themes we've profiled). 85vh covers the bulk of the shift with a small safety
+# margin against over-reserving; revertible + tunable in the Customizer.
+_HERO_FALLBACK_MIN_HEIGHT = "85vh"
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -108,7 +111,18 @@ def detect_reserves(html: str) -> list[dict[str, Any]]:
         if vid and re.match(r"^[A-Za-z][\w-]*$", vid):
             emit(f"#{vid}", {"aspect_ratio": aspect})
 
+    # Overlap neutraliser: some themes (e.g. Hestia) pull the main content up
+    # over the hero with a negative margin — when the hero's height resolves,
+    # that content JUMPS. If we reserved a hero AND a `.main-raised` overlap
+    # exists, zero its top margin so it no longer depends on the hero height.
+    reserved_hero = any(o["selector"] in _HERO_SELECTORS for o in out)
+    if reserved_hero and soup.select_one(".main-raised"):
+        emit(".main.main-raised", {"margin_top": "0"})
+
     return out
+
+
+_HERO_SELECTORS = frozenset({".header-filter", ".carousel", ".carousel-inner"})
 
 
 async def fetch_and_detect(url: str) -> list[dict[str, Any]]:

@@ -27,10 +27,28 @@ def test_bare_video_with_id_and_dims() -> None:
 
 def test_hero_container_css_background_gets_minheight_fallback() -> None:
     # A CSS background-image hero (no <img>/<video>) can't yield an aspect-ratio,
-    # so we reserve a conservative viewport-relative min-height instead.
+    # so we reserve a viewport-relative min-height instead.
     html = '<div class="header-filter" style="background:url(x.jpg)"></div>'
     out = mr.detect_reserves(html)
-    assert {"selector": ".header-filter", "data": {"min_height": "60vh"}} in out
+    assert {"selector": ".header-filter", "data": {"min_height": "85vh"}} in out
+
+
+def test_main_raised_overlap_is_neutralised_with_hero() -> None:
+    # Hestia-style: a reserved hero + a .main-raised overlap → also zero the
+    # overlap margin so the content stops jumping when the hero resolves.
+    html = (
+        '<div class="header-filter"></div>'
+        '<div class="main main-raised"><p>content</p></div>'
+    )
+    out = mr.detect_reserves(html)
+    assert {"selector": ".header-filter", "data": {"min_height": "85vh"}} in out
+    assert {"selector": ".main.main-raised", "data": {"margin_top": "0"}} in out
+
+
+def test_main_raised_without_hero_is_left_alone() -> None:
+    # No reserved hero → don't touch main-raised (avoid unrelated layout change).
+    html = '<div class="main main-raised"><p>content</p></div>'
+    assert mr.detect_reserves(html) == []
 
 
 def test_non_hero_container_without_media_is_skipped() -> None:

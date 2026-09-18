@@ -881,20 +881,46 @@ class RankPilot_Connector_Fixes {
 	 * @param array  $data   { aspect_ratio: "16/9" } or { min_height: "100vh" }.
 	 * @return string|WP_Error
 	 */
+	// Layout-stabilisation properties the backend may set (key => CSS prop).
+	// Deliberately a tiny whitelist of layout-reservation properties — never
+	// arbitrary CSS — so a stored value can't inject unrelated styling.
+	const RESERVE_PROPS = array(
+		'aspect_ratio' => 'aspect-ratio',
+		'min_height'   => 'min-height',
+		'height'       => 'height',
+		'margin_top'   => 'margin-top',
+		'object_fit'   => 'object-fit',
+	);
+
+	/**
+	 * Sanitise a CSS value: allow only the characters valid in the lengths /
+	 * ratios / keywords we use (digits, units, %, /, spaces, dot, minus). This
+	 * strips ';', '{', '}', ':' etc. so a value can't break out of its
+	 * declaration.
+	 *
+	 * @param string $value Raw value.
+	 * @return string
+	 */
+	private static function sanitize_css_value( $value ) {
+		return trim( preg_replace( '#[^a-zA-Z0-9%/.\- ]#', '', (string) $value ) );
+	}
+
 	private static function apply_media_reserve( $target, $data ) {
 		$target = trim( (string) $target );
 		if ( '' === $target ) {
 			return self::error( 'missing_target', 'A container selector is required.', 400 );
 		}
 		$rule = array();
-		if ( isset( $data['aspect_ratio'] ) && '' !== (string) $data['aspect_ratio'] ) {
-			$rule['aspect_ratio'] = sanitize_text_field( (string) $data['aspect_ratio'] );
-		}
-		if ( isset( $data['min_height'] ) && '' !== (string) $data['min_height'] ) {
-			$rule['min_height'] = sanitize_text_field( (string) $data['min_height'] );
+		foreach ( self::RESERVE_PROPS as $key => $css_prop ) {
+			if ( isset( $data[ $key ] ) && '' !== (string) $data[ $key ] ) {
+				$clean = self::sanitize_css_value( $data[ $key ] );
+				if ( '' !== $clean ) {
+					$rule[ $css_prop ] = $clean;
+				}
+			}
 		}
 		if ( empty( $rule ) ) {
-			return self::error( 'missing_data', 'reserve_media_dimensions needs data.aspect_ratio or data.min_height.', 400 );
+			return self::error( 'missing_data', 'reserve_media_dimensions needs at least one of: aspect_ratio, min_height, height, margin_top, object_fit.', 400 );
 		}
 		$reserve            = self::media_reserve_rules();
 		$reserve[ $target ] = $rule;
@@ -904,9 +930,8 @@ class RankPilot_Connector_Fixes {
 
 	/**
 	 * Front-end (wp_head): print scoped CSS that reserves each configured
-	 * container's size up front. aspect-ratio is preferred; min_height is a
-	 * fallback for full-height heroes. Emitted early so it applies before the
-	 * (rotating) media loads.
+	 * container's size (and neutralises overlap margins that cause the shift)
+	 * up front, before the (rotating) media loads.
 	 *
 	 * @return void
 	 */
@@ -915,18 +940,20 @@ class RankPilot_Connector_Fixes {
 		if ( empty( $reserve ) ) {
 			return;
 		}
-		$css = '';
+		$valid = array_flip( self::RESERVE_PROPS ); // css-prop => key (whitelist)
+		$css   = '';
 		foreach ( $reserve as $selector => $rule ) {
-			$decls = '';
-			if ( ! empty( $rule['aspect_ratio'] ) ) {
-				$decls .= 'aspect-ratio:' . $rule['aspect_ratio'] . ';';
+			if ( ! is_array( $rule ) ) {
+				continue;
 			}
-			if ( ! empty( $rule['min_height'] ) ) {
-				$decls .= 'min-height:' . $rule['min_height'] . ';';
+			$decls = '';
+			foreach ( $rule as $css_prop => $value ) {
+				// Only emit whitelisted properties with re-sanitised values.
+				if ( isset( $valid[ $css_prop ] ) ) {
+					$decls .= $css_prop . ':' . self::sanitize_css_value( $value ) . '!important;';
+				}
 			}
 			if ( '' !== $decls ) {
-				// Stored CSS selector; strip chars that could break out of the
-				// rule/style context.
 				$safe_selector = str_replace( array( '<', '>', '{', '}' ), '', (string) $selector );
 				$css          .= $safe_selector . '{' . $decls . '}';
 			}
